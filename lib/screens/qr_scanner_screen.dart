@@ -406,136 +406,24 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
             }
           }
           
-          // Show success message
+          // Show success / error messageแบบสั้น
           if (mounted) {
-            if (savedToGallery) {
-              // Successfully saved to gallery
+            if (savedToGallery || savedFilePath != null) {
               ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Row(
-                        children: [
-                          Icon(Icons.check_circle, color: Colors.white, size: 24),
-                          SizedBox(width: 12),
-                          Expanded(
-                            child: Text(
-                              'บันทึก QR Code เรียบร้อย!',
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 16,
-                                color: Colors.white,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      Text(
-                        'บันทึกลงแกลเลอรีแล้ว${galleryPath != null ? '\nพาธ: $galleryPath' : ''}',
-                        style: const TextStyle(fontSize: 14),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        'ชื่อไฟล์: $fileName',
-                        style: const TextStyle(fontSize: 12),
-                      ),
-                      const SizedBox(height: 8),
-                      Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.2),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Text(
-                          'คุณสามารถเปิดดูได้จากแกลเลอรีของเครื่อง\nและค้นหาไฟล์สำเนาในแอปไฟล์ที่พาธ:\n${savedFilePath ?? '-'}',
-                          style: const TextStyle(fontSize: 12),
-                        ),
-                      ),
-                    ],
-                  ),
+                const SnackBar(
+                  content: Text('บันทึก QR Code เรียบร้อยแล้ว'),
                   backgroundColor: Colors.green,
-                  duration: const Duration(seconds: 6),
-                ),
-              );
-            } else if (savedFilePath != null) {
-              // Saved to app directory
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Row(
-                        children: [
-                          Icon(Icons.check_circle, color: Colors.white, size: 24),
-                          SizedBox(width: 12),
-                          Expanded(
-                            child: Text(
-                              'บันทึก QR Code เรียบร้อย',
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 16,
-                                color: Colors.white,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'บันทึกไว้ใน: $savedFilePath',
-                        style: const TextStyle(fontSize: 12),
-                      ),
-                      Text(
-                        'ชื่อไฟล์: $fileName',
-                        style: const TextStyle(fontSize: 12),
-                      ),
-                    ],
-                  ),
-                  backgroundColor: Colors.blue,
-                  duration: const Duration(seconds: 5),
+                  duration: Duration(seconds: 2),
                 ),
               );
             } else {
-              // Failed to save
-              if (mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: const Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Icon(Icons.error_outline, color: Colors.white, size: 24),
-                            SizedBox(width: 12),
-                            Expanded(
-                              child: Text(
-                                'ไม่สามารถบันทึก QR Code ได้',
-                                style: TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 16,
-                                  color: Colors.white,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        SizedBox(height: 8),
-                        Text(
-                          'กรุณาลองใหม่อีกครั้ง หรือตรวจสอบสิทธิ์การเข้าถึงแกลเลอรี',
-                          style: TextStyle(fontSize: 12),
-                        ),
-                      ],
-                    ),
-                    backgroundColor: Colors.red,
-                    duration: const Duration(seconds: 5),
-                  ),
-                );
-              }
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('ไม่สามารถบันทึก QR Code ได้'),
+                  backgroundColor: Colors.red,
+                  duration: Duration(seconds: 2),
+                ),
+              );
             }
           }
         } catch (e) {

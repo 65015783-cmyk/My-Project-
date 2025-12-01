@@ -165,51 +165,12 @@ class _CheckInScreenState extends State<CheckInScreen> {
 
       if (!mounted) return;
 
-      // แสดงผลสำเร็จ
+      // แสดงผลสำเร็จแบบสั้น
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
+        const SnackBar(
+          content: Text('บันทึก QR Code เรียบร้อยแล้ว'),
           backgroundColor: Colors.green,
-          duration: const Duration(seconds: 6),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Row(
-                children: [
-                  Icon(Icons.check_circle, color: Colors.white, size: 22),
-                  SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'บันทึก QR Code เรียบร้อย',
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 16,
-                        color: Colors.white,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              if (savedToGallery)
-                const Text(
-                  'บันทึกลงแกลเลอรีแล้ว',
-                  style: TextStyle(fontSize: 13, color: Colors.white),
-                ),
-              if (savedFilePath != null) ...[
-                const SizedBox(height: 4),
-                Text(
-                  'ไฟล์ถูกบันทึกไว้ที่:\n$savedFilePath',
-                  style: const TextStyle(fontSize: 12, color: Colors.white),
-                ),
-              ],
-              const SizedBox(height: 4),
-              const Text(
-                'จากนั้นสามารถใช้ปุ่มสีส้มด้านล่างเพื่อสแกน QR ที่บันทึกไว้ได้',
-                style: TextStyle(fontSize: 11, color: Colors.white),
-              ),
-            ],
-          ),
+          duration: Duration(seconds: 2),
         ),
       );
     } catch (e) {
@@ -263,10 +224,11 @@ class _CheckInScreenState extends State<CheckInScreen> {
 
     try {
       final attendanceService = Provider.of<AttendanceService>(context, listen: false);
-      // เช็คอินโดยไม่บังคับให้มีรูปภาพแล้ว
+      // เช็คอินโดยไม่บังคับให้มีรูปภาพแล้ว ใช้เวลา ณ ตอนกดยืนยัน
       await attendanceService.checkInWithImage(
         date: _selectedDate,
         imagePath: '',
+        checkInTime: DateTime.now(),
       );
 
       if (mounted) {

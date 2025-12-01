@@ -92,13 +92,21 @@ class _QRCheckInFormScreenState extends State<QRCheckInFormScreen> {
     });
 
     try {
-      // Get check-in timestamp from QR Code data
+      // เวลาเช็คอินที่แท้จริงมาจากตอนสแกน QR
       final checkInTime = widget.qrData != null && widget.qrData!['checkInTimestamp'] != null
           ? DateTime.parse(widget.qrData!['checkInTimestamp'] as String)
           : DateTime.now();
-      
+
       // TODO: Submit check-in data to server with timestamp
       await Future.delayed(const Duration(seconds: 1)); // Simulate API call
+
+      // อัปเดต AttendanceService ให้ DailyWorkCard แสดงเวลาเข้างานตามเวลาที่สแกน
+      final attendanceService = Provider.of<AttendanceService>(context, listen: false);
+      await attendanceService.checkInWithImage(
+        date: checkInTime,
+        imagePath: _selfieImage!.path,
+        checkInTime: checkInTime,
+      );
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

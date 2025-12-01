@@ -49,13 +49,14 @@ class HomeScreen extends StatelessWidget {
               },
             ),
             flexibleSpace: FlexibleSpaceBar(
-              titlePadding: const EdgeInsets.only(left: 80, bottom: 16),
+              // ขยับข้อความขึ้นไปด้านบนและให้ดูเล็กลง
+              titlePadding: const EdgeInsets.only(left: 80, bottom: 8),
               title: Text(
                 'Welcome, ${user.shortName}',
                 style: const TextStyle(
                   color: Colors.black87,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 20,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 18,
                 ),
               ),
             ),

@@ -16,10 +16,11 @@ class AttendanceService extends ChangeNotifier {
     final today = DateTime(now.year, now.month, now.day);
 
     // Check if attendance already exists
+    // เริ่มต้นวันใหม่โดยยังไม่ถือว่าเช็คอิน (เวลาเข้างานเป็น null)
     _todayAttendance = AttendanceModel(
       id: 'att_${now.millisecondsSinceEpoch}',
       date: today,
-      checkInTime: DateTime.now().hour >= 8 ? DateTime.now() : null,
+      checkInTime: null,
       checkInImagePath: null,
       workSchedule: _defaultSchedule,
     );
@@ -48,14 +49,16 @@ class AttendanceService extends ChangeNotifier {
   Future<void> checkInWithImage({
     required DateTime date,
     required String imagePath,
+    DateTime? checkInTime,
   }) async {
     final selectedDate = DateTime(date.year, date.month, date.day);
     final now = DateTime.now();
+    final effectiveCheckInTime = checkInTime ?? now;
 
     _todayAttendance = AttendanceModel(
       id: 'att_${now.millisecondsSinceEpoch}',
       date: selectedDate,
-      checkInTime: now,
+      checkInTime: effectiveCheckInTime,
       checkInImagePath: imagePath,
       workSchedule: _defaultSchedule,
     );
