@@ -11,6 +11,8 @@ import 'services/auth_service.dart';
 import 'services/attendance_service.dart';
 import 'services/leave_service.dart';
 import 'screens/splash_screen.dart';
+import 'login/login_screen.dart';
+import 'screens/admin/admin_dashboard.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -63,7 +65,12 @@ class MyApp extends StatelessWidget {
             centerTitle: true,
           ),
         ),
-        home: const SplashScreen(),
+        routes: {
+          '/home': (context) => const MainScreen(),
+          '/login': (context) => const LoginScreen(),
+          '/admin': (context) => const AdminDashboard(),
+        },
+        home: const LoginScreen(),
       ),
     );
   }
