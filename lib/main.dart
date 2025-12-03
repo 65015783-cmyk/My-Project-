@@ -10,6 +10,7 @@ import 'screens/profile_screen.dart';
 import 'services/auth_service.dart';
 import 'services/attendance_service.dart';
 import 'services/leave_service.dart';
+import 'services/salary_service.dart';
 import 'screens/splash_screen.dart';
 import 'login/login_screen.dart';
 import 'screens/admin/admin_dashboard.dart';
@@ -30,6 +31,7 @@ class MyApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => AuthService()),
         ChangeNotifierProvider(create: (_) => AttendanceService()),
         ChangeNotifierProvider(create: (_) => LeaveService()),
+        ChangeNotifierProvider(create: (_) => SalaryService()),
       ],
       child: MaterialApp(
         title: 'Hummans - HR Management',

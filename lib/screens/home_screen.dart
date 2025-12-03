@@ -8,6 +8,7 @@ import '../widgets/action_button.dart';
 import 'check_in_screen.dart';
 import 'request_leave_screen.dart';
 import 'qr_scanner_screen.dart';
+import 'salary_screen.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
@@ -241,9 +242,10 @@ class HomeScreen extends StatelessWidget {
                 label: 'เงินเดือน',
                 color: Colors.purple,
                 onTap: () {
-                  // Navigate to salary screen
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('เปิดหน้าเงินเดือน')),
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (context) => const SalaryScreen(),
+                    ),
                   );
                 },
               ),
