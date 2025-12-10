@@ -502,6 +502,11 @@ class _RequestLeaveScreenState extends State<RequestLeaveScreen> {
                 child: TextFormField(
                   controller: _reasonController,
                   maxLines: 4,
+                  keyboardType: TextInputType.multiline,
+                  textInputAction: TextInputAction.newline,
+                  enableSuggestions: true,
+                  autocorrect: true,
+                  // ไม่จำกัดการพิมพ์ - รองรับทั้งไทยและอังกฤษ
                   validator: (value) {
                     if (value == null || value.isEmpty) {
                       return 'กรุณากรอกเหตุผลการลา';

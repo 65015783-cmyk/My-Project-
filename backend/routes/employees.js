@@ -41,6 +41,16 @@ router.post('/', authenticateToken, async (req, res) => {
       return res.status(400).json({ message: 'กรุณากรอกข้อมูลให้ครบถ้วน' });
     }
 
+    // Validate role
+    const validRoles = ['admin', 'employee', 'manager'];
+    const selectedRole = role || 'employee';
+    if (!validRoles.includes(selectedRole)) {
+      return res.status(400).json({ 
+        message: `Role ไม่ถูกต้อง ต้องเป็น: ${validRoles.join(', ')}`,
+        received: selectedRole
+      });
+    }
+
     connection = await pool.getConnection();
 
     // Check if exists
@@ -60,7 +70,7 @@ router.post('/', authenticateToken, async (req, res) => {
     // Insert
     const [result] = await connection.execute(
       'INSERT INTO login (username, email, password_hash, role) VALUES (?, ?, ?, ?)',
-      [username, email, hashedPassword, role || 'employee']
+      [username, email, hashedPassword, selectedRole]
     );
 
     res.status(201).json({
@@ -69,7 +79,21 @@ router.post('/', authenticateToken, async (req, res) => {
     });
   } catch (error) {
     console.error('Create employee error:', error);
-    res.status(500).json({ message: 'เกิดข้อผิดพลาด' });
+    
+    // ตรวจสอบ error ที่เกี่ยวข้องกับ role
+    if (error.code === 'ER_TRUNCATED_WRONG_VALUE_FOR_FIELD' || 
+        error.message?.includes('role') ||
+        error.sqlMessage?.includes('role')) {
+      return res.status(400).json({ 
+        message: 'Role ไม่ถูกต้อง กรุณาแก้ไข database schema ให้รองรับ role = "manager"',
+        error: error.message 
+      });
+    }
+    
+    res.status(500).json({ 
+      message: 'เกิดข้อผิดพลาด',
+      error: error.message 
+    });
   } finally {
     if (connection) connection.release();
   }
@@ -98,6 +122,17 @@ router.put('/:userId', authenticateToken, async (req, res) => {
       return res.status(409).json({ message: 'ชื่อผู้ใช้หรืออีเมลนี้ถูกใช้งานแล้ว' });
     }
 
+    // Validate role before update
+    const validRoles = ['admin', 'employee', 'manager'];
+    const selectedRole = role || 'employee';
+    
+    if (!validRoles.includes(selectedRole)) {
+      return res.status(400).json({ 
+        message: `Role ไม่ถูกต้อง ต้องเป็น: ${validRoles.join(', ')}`,
+        received: selectedRole
+      });
+    }
+
     // Update
     if (password && password.length > 0) {
       const salt = await bcrypt.genSalt(10);
@@ -105,19 +140,50 @@ router.put('/:userId', authenticateToken, async (req, res) => {
       
       await connection.execute(
         'UPDATE login SET username = ?, email = ?, password_hash = ?, role = ? WHERE user_id = ?',
-        [username, email, hashedPassword, role, userId]
+        [username, email, hashedPassword, selectedRole, userId]
       );
     } else {
       await connection.execute(
         'UPDATE login SET username = ?, email = ?, role = ? WHERE user_id = ?',
-        [username, email, role, userId]
+        [username, email, selectedRole, userId]
       );
     }
 
     res.json({ message: 'แก้ไขพนักงานสำเร็จ' });
   } catch (error) {
     console.error('Update employee error:', error);
-    res.status(500).json({ message: 'เกิดข้อผิดพลาด' });
+    console.error('Error details:', {
+      code: error.code,
+      errno: error.errno,
+      sqlState: error.sqlState,
+      sqlMessage: error.sqlMessage,
+      sql: error.sql
+    });
+    
+    // ตรวจสอบ error ที่เกี่ยวข้องกับ role
+    if (error.code === 'WARN_DATA_TRUNCATED' || 
+        error.code === 'ER_TRUNCATED_WRONG_VALUE_FOR_FIELD' || 
+        error.code === 'ER_BAD_FIELD_ERROR' ||
+        error.errno === 1265 ||
+        error.message?.includes('role') ||
+        error.message?.includes('truncated') ||
+        error.sqlMessage?.includes('role') ||
+        error.sqlMessage?.includes('truncated')) {
+      return res.status(400).json({ 
+        message: 'Database schema ยังไม่รองรับ role = "manager"',
+        hint: 'กรุณารัน SQL: ALTER TABLE login MODIFY COLUMN role ENUM(\'admin\', \'employee\', \'manager\') DEFAULT \'employee\';',
+        instruction: 'รันไฟล์: mysql -u root -p humans < backend/add_manager_role.sql',
+        error: error.message,
+        sqlMessage: error.sqlMessage,
+        code: error.code
+      });
+    }
+    
+    res.status(500).json({ 
+      message: 'เกิดข้อผิดพลาด',
+      error: error.message,
+      sqlMessage: error.sqlMessage
+    });
   } finally {
     if (connection) connection.release();
   }

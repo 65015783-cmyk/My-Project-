@@ -11,6 +11,7 @@ import 'services/auth_service.dart';
 import 'services/attendance_service.dart';
 import 'services/leave_service.dart';
 import 'services/salary_service.dart';
+import 'services/language_service.dart';
 import 'screens/splash_screen.dart';
 import 'login/login_screen.dart';
 import 'screens/admin/admin_dashboard.dart';
@@ -18,6 +19,7 @@ import 'screens/admin/admin_dashboard.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await initializeDateFormatting('th', null);
+  await initializeDateFormatting('en', null);
   runApp(const MyApp());
 }
 
@@ -32,19 +34,23 @@ class MyApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => AttendanceService()),
         ChangeNotifierProvider(create: (_) => LeaveService()),
         ChangeNotifierProvider(create: (_) => SalaryService()),
+        ChangeNotifierProvider(create: (_) => LanguageService()),
       ],
-      child: MaterialApp(
-        title: 'Hummans - HR Management',
-        debugShowCheckedModeBanner: false,
-        localizationsDelegates: const [
-          GlobalMaterialLocalizations.delegate,
-          GlobalWidgetsLocalizations.delegate,
-          GlobalCupertinoLocalizations.delegate,
-        ],
-        supportedLocales: const [
-          Locale('th', 'TH'),
-          Locale('en', ''),
-        ],
+      child: Consumer<LanguageService>(
+        builder: (context, languageService, _) {
+          return MaterialApp(
+            title: 'Hummans - HR Management',
+            debugShowCheckedModeBanner: false,
+            locale: languageService.locale, // ใช้ locale จาก LanguageService
+            localizationsDelegates: const [
+              GlobalMaterialLocalizations.delegate,
+              GlobalWidgetsLocalizations.delegate,
+              GlobalCupertinoLocalizations.delegate,
+            ],
+            supportedLocales: const [
+              Locale('th', 'TH'),
+              Locale('en', ''),
+            ],
         theme: ThemeData(
           colorScheme: ColorScheme.fromSeed(
             seedColor: const Color(0xFF2196F3),
@@ -67,12 +73,14 @@ class MyApp extends StatelessWidget {
             centerTitle: true,
           ),
         ),
-        routes: {
-          '/home': (context) => const MainScreen(),
-          '/login': (context) => const LoginScreen(),
-          '/admin': (context) => const AdminDashboard(),
+            routes: {
+              '/home': (context) => const MainScreen(),
+              '/login': (context) => const LoginScreen(),
+              '/admin': (context) => const AdminDashboard(),
+            },
+            home: const SplashScreen(),
+          );
         },
-        home: const LoginScreen(),
       ),
     );
   }

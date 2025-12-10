@@ -1,5 +1,9 @@
 import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
 import '../models/leave_model.dart';
+import '../config/api_config.dart';
 
 class LeaveService extends ChangeNotifier {
   List<LeaveRequest> _leaveRequests = [];
@@ -9,41 +13,67 @@ class LeaveService extends ChangeNotifier {
   LeaveBalance get leaveBalance => _leaveBalance;
 
   LeaveService() {
-    _initializeMockData();
+    _loadLeaveHistory();
+  }
+
+  // โหลดประวัติการลาจาก backend
+  Future<void> _loadLeaveHistory() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('auth_token');
+
+      if (token == null) {
+        _initializeMockData(); // ใช้ mock data ถ้าไม่มี token
+        return;
+      }
+
+      final response = await http.get(
+        Uri.parse(ApiConfig.leaveHistoryUrl),
+        headers: ApiConfig.headersWithAuth(token),
+      );
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body) as Map<String, dynamic>;
+        final leaves = data['leaves'] as List<dynamic>? ?? [];
+        
+        _leaveRequests = leaves.map((leave) {
+          return LeaveRequest(
+            id: leave['id'].toString(),
+            type: _parseLeaveType(leave['leave_type']),
+            startDate: DateTime.parse(leave['start_date']),
+            endDate: DateTime.parse(leave['end_date']),
+            totalDays: leave['total_days'] ?? _calculateTotalDays(
+              DateTime.parse(leave['start_date']),
+              DateTime.parse(leave['end_date']),
+            ),
+            reason: leave['reason'] ?? '',
+            documentPaths: [],
+            approver: leave['approved_by'] != null ? 'Manager' : '',
+            status: _parseLeaveStatus(leave['status']),
+            createdAt: DateTime.parse(leave['created_at']),
+            updatedAt: leave['updated_at'] != null 
+                ? DateTime.parse(leave['updated_at']) 
+                : null,
+          );
+        }).toList();
+        
+        notifyListeners();
+      } else {
+        _initializeMockData(); // ใช้ mock data ถ้าโหลดไม่สำเร็จ
+      }
+    } catch (e) {
+      print('Error loading leave history: $e');
+      _initializeMockData(); // ใช้ mock data ถ้าเกิด error
+    }
   }
 
   void _initializeMockData() {
-    // Mock leave requests
-    _leaveRequests = [
-      LeaveRequest(
-        id: 'leave_1',
-        type: LeaveType.sickLeave,
-        startDate: DateTime.now().subtract(const Duration(days: 5)),
-        endDate: DateTime.now().subtract(const Duration(days: 3)),
-        totalDays: 3,
-        reason: 'ไม่สบาย มีไข้',
-        documentPaths: [],
-        approver: 'หัวหน้าแผนก',
-        status: LeaveStatus.approved,
-        createdAt: DateTime.now().subtract(const Duration(days: 7)),
-        updatedAt: DateTime.now().subtract(const Duration(days: 6)),
-      ),
-      LeaveRequest(
-        id: 'leave_2',
-        type: LeaveType.personalLeave,
-        startDate: DateTime.now().add(const Duration(days: 5)),
-        endDate: DateTime.now().add(const Duration(days: 7)),
-        totalDays: 3,
-        reason: 'ธุระส่วนตัว',
-        documentPaths: [],
-        approver: 'หัวหน้าแผนก',
-        status: LeaveStatus.pending,
-        createdAt: DateTime.now().subtract(const Duration(days: 2)),
-      ),
-    ];
+    // Mock leave requests (fallback)
+    _leaveRequests = [];
     notifyListeners();
   }
 
+  // ส่งคำขอลาไปยัง backend API
   Future<void> submitLeaveRequest({
     required LeaveType type,
     required DateTime startDate,
@@ -51,37 +81,107 @@ class LeaveService extends ChangeNotifier {
     required String reason,
     required List<String> documentPaths,
   }) async {
-    final totalDays = _calculateTotalDays(startDate, endDate);
-    
-    final newRequest = LeaveRequest(
-      id: 'leave_${DateTime.now().millisecondsSinceEpoch}',
-      type: type,
-      startDate: startDate,
-      endDate: endDate,
-      totalDays: totalDays,
-      reason: reason,
-      documentPaths: documentPaths,
-      approver: 'หัวหน้าแผนก',
-      status: LeaveStatus.pending,
-      createdAt: DateTime.now(),
-    );
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('auth_token');
 
-    _leaveRequests.insert(0, newRequest);
-    
-    // Update leave balance (mock)
-    if (type == LeaveType.sickLeave) {
-      _leaveBalance = LeaveBalance(
-        sickLeaveRemaining: _leaveBalance.sickLeaveRemaining - totalDays,
-        personalLeaveRemaining: _leaveBalance.personalLeaveRemaining,
+      if (token == null) {
+        throw Exception('ไม่พบ Token การยืนยันตัวตน');
+      }
+
+      // แปลง LeaveType เป็น string สำหรับ API
+      String leaveType;
+      switch (type) {
+        case LeaveType.sickLeave:
+          leaveType = 'sick';
+          break;
+        case LeaveType.personalLeave:
+          leaveType = 'personal';
+          break;
+        default:
+          leaveType = 'personal'; // default to personal
+      }
+
+      // ส่งคำขอลาไปยัง backend
+      final response = await http.post(
+        Uri.parse(ApiConfig.leaveRequestUrl),
+        headers: ApiConfig.headersWithAuth(token),
+        body: json.encode({
+          'leaveType': leaveType,
+          'startDate': startDate.toIso8601String().split('T')[0], // YYYY-MM-DD
+          'endDate': endDate.toIso8601String().split('T')[0], // YYYY-MM-DD
+          'reason': reason,
+        }),
       );
-    } else {
-      _leaveBalance = LeaveBalance(
-        sickLeaveRemaining: _leaveBalance.sickLeaveRemaining,
-        personalLeaveRemaining: _leaveBalance.personalLeaveRemaining - totalDays,
-      );
+
+      if (response.statusCode == 201) {
+        final data = json.decode(response.body) as Map<String, dynamic>;
+        final totalDays = _calculateTotalDays(startDate, endDate);
+        
+        // สร้าง leave request object
+        final newRequest = LeaveRequest(
+          id: data['leaveId'].toString(),
+          type: type,
+          startDate: startDate,
+          endDate: endDate,
+          totalDays: totalDays,
+          reason: reason,
+          documentPaths: documentPaths,
+          approver: '', // ยังไม่มีคนอนุมัติ
+          status: LeaveStatus.pending,
+          createdAt: DateTime.now(),
+        );
+
+        _leaveRequests.insert(0, newRequest);
+        
+        // Update leave balance
+        if (type == LeaveType.sickLeave) {
+          _leaveBalance = LeaveBalance(
+            sickLeaveRemaining: _leaveBalance.sickLeaveRemaining - totalDays,
+            personalLeaveRemaining: _leaveBalance.personalLeaveRemaining,
+          );
+        } else {
+          _leaveBalance = LeaveBalance(
+            sickLeaveRemaining: _leaveBalance.sickLeaveRemaining,
+            personalLeaveRemaining: _leaveBalance.personalLeaveRemaining - totalDays,
+          );
+        }
+
+        notifyListeners();
+      } else {
+        final errorData = json.decode(response.body) as Map<String, dynamic>?;
+        throw Exception(errorData?['message'] ?? 'เกิดข้อผิดพลาดในการส่งคำขอลางาน');
+      }
+    } catch (e) {
+      print('Error submitting leave request: $e');
+      rethrow; // Throw error เพื่อให้ UI แสดง error message
     }
+  }
 
-    notifyListeners();
+  // Helper functions
+  LeaveType _parseLeaveType(String? type) {
+    switch (type) {
+      case 'sick':
+        return LeaveType.sickLeave;
+      case 'personal':
+        return LeaveType.personalLeave;
+      case 'vacation':
+        return LeaveType.personalLeave; // map vacation to personalLeave
+      default:
+        return LeaveType.personalLeave;
+    }
+  }
+
+  LeaveStatus _parseLeaveStatus(String? status) {
+    switch (status) {
+      case 'approved':
+        return LeaveStatus.approved;
+      case 'rejected':
+        return LeaveStatus.rejected;
+      case 'pending':
+      default:
+        return LeaveStatus.pending;
+    }
   }
 
   int _calculateTotalDays(DateTime start, DateTime end) {

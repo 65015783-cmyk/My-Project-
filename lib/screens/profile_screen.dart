@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'dart:io';
 import '../services/auth_service.dart';
+import '../services/language_service.dart';
 import 'edit_profile_screen.dart';
 import 'change_password_screen.dart';
 import 'work_history_screen.dart';
@@ -131,6 +132,14 @@ class ProfileScreen extends StatelessWidget {
                       builder: (context) => const AboutAppScreen(),
                     ),
                   );
+                },
+              ),
+              MenuItem(
+                icon: Icons.language,
+                title: 'ภาษา / Language',
+                color: Colors.indigo,
+                onTap: () {
+                  _showLanguageDialog(context);
                 },
               ),
             ]),
@@ -328,6 +337,62 @@ class ProfileScreen extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+
+  void _showLanguageDialog(BuildContext context) {
+    final languageService = Provider.of<LanguageService>(context, listen: false);
+    
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          title: const Text(
+            'เลือกภาษา / Select Language',
+            style: TextStyle(fontWeight: FontWeight.bold),
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.flag, color: Colors.blue),
+                title: const Text('ไทย (Thai)'),
+                trailing: languageService.isThai
+                    ? const Icon(Icons.check, color: Colors.green)
+                    : null,
+                onTap: () {
+                  languageService.setThai();
+                  Navigator.of(context).pop();
+                },
+              ),
+              const Divider(),
+              ListTile(
+                leading: const Icon(Icons.flag, color: Colors.red),
+                title: const Text('English'),
+                trailing: languageService.isEnglish
+                    ? const Icon(Icons.check, color: Colors.green)
+                    : null,
+                onTap: () {
+                  languageService.setEnglish();
+                  Navigator.of(context).pop();
+                },
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: Text(
+                'ปิด / Close',
+                style: TextStyle(color: Colors.grey[600]),
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 

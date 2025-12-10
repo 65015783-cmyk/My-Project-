@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:provider/provider.dart';
 import '../register/register.dart';
 import '../config/api_config.dart';
+import '../services/auth_service.dart';
 
 
 /// ----------------------------------------------------------------
@@ -23,6 +25,14 @@ class _LoginScreenState extends State<LoginScreen> {
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
   bool _isLoading = false;
   bool _obscurePassword = true;
+
+  @override
+  void initState() {
+    super.initState();
+    // ไม่ต้องตรวจสอบ token ใน login screen
+    // ให้ SplashScreen เป็นผู้จัดการ authentication และ redirect
+    // หน้า login นี้ควรแสดงให้ user login เท่านั้น
+  }
 
   // Helper function สำหรับแสดงข้อความแจ้งเตือน (SnackBar)
   void _showSnackbar(String message, Color color) {
@@ -102,7 +112,9 @@ class _LoginScreenState extends State<LoginScreen> {
         if (statusCode == 200) {
           // ✅ เข้าสู่ระบบสำเร็จ
           String username = data['username'] ?? 'User';
-          String role = data['role'] ?? 'employee';
+          // Normalize role (trim + lowercase) ทันที
+          String role = (data['role'] ?? 'employee').toString().trim().toLowerCase();
+          print('[LOGIN] Role received: "$role" (type: ${role.runtimeType})');
           // พยายามอ่าน user_id หาก backend ส่งมา
           int? userId;
           if (data['user_id'] != null) {
@@ -126,7 +138,20 @@ class _LoginScreenState extends State<LoginScreen> {
             final prefs = await SharedPreferences.getInstance();
             if (userId != null) prefs.setInt('user_id', userId);
             await prefs.setString('username', username);
+            // เก็บ role ที่ normalize แล้ว
             await prefs.setString('role', role);
+            print('[LOGIN] Saved role to SharedPreferences: "$role"');
+            
+            // เก็บ email ถ้ามี
+            if (data['user'] != null && data['user'] is Map) {
+              final userData = data['user'] as Map<String, dynamic>;
+              if (userData['email'] != null) {
+                await prefs.setString('email', userData['email'].toString());
+              }
+            } else if (data['email'] != null) {
+              await prefs.setString('email', data['email'].toString());
+            }
+            
             // เก็บ JWT token สำหรับใช้กับ API ที่ต้อง authentication
             if (data['token'] != null) {
               await prefs.setString('auth_token', data['token']);
@@ -135,6 +160,15 @@ class _LoginScreenState extends State<LoginScreen> {
           } catch (e) {
             print('Failed to save prefs: $e');
           }
+
+          // อัปเดต AuthService ด้วยข้อมูลผู้ใช้
+          try {
+            final authService = Provider.of<AuthService>(context, listen: false);
+            await authService.setUserFromLogin(data);
+          } catch (e) {
+            print('Error updating AuthService: $e');
+          }
+
           _showSnackbar('✅ เข้าสู่ระบบสำเร็จ! ยินดีต้อนรับคุณ $username ($role)', Colors.green);
           
           await Future.delayed(const Duration(milliseconds: 500));
@@ -144,11 +178,14 @@ class _LoginScreenState extends State<LoginScreen> {
           // ----------------------------------------------------------------
           // **✅ การนำทางตาม Role**
           // ----------------------------------------------------------------
+          print('[LOGIN] Navigating based on role: "$role"');
           if (role == 'admin') {
             // Admin ไปหน้า Admin Dashboard
+            print('[LOGIN] Redirecting to Admin Dashboard');
             Navigator.pushReplacementNamed(context, '/admin');
           } else {
             // Employee ไปหน้า Home
+            print('[LOGIN] Redirecting to Home');
             Navigator.pushReplacementNamed(context, '/home');
           }
           // ----------------------------------------------------------------
@@ -223,6 +260,11 @@ class _LoginScreenState extends State<LoginScreen> {
                       children: <Widget>[
                         TextFormField(
                           controller: _loginIdController,
+                          keyboardType: TextInputType.text,
+                          textInputAction: TextInputAction.next,
+                          enableSuggestions: true,
+                          autocorrect: false,
+                          // ไม่จำกัดการพิมพ์ - รองรับทั้งไทยและอังกฤษ
                           decoration: InputDecoration(
                             labelText: 'Username / Email',
                             hintText: 'Enter username (e.g., admin or employee)', // คำแนะนำ
@@ -246,6 +288,10 @@ class _LoginScreenState extends State<LoginScreen> {
                         TextFormField(
                           controller: _passwordController,
                           obscureText: _obscurePassword,
+                          keyboardType: TextInputType.visiblePassword,
+                          textInputAction: TextInputAction.done,
+                          enableSuggestions: false,
+                          autocorrect: false,
                           decoration: InputDecoration(
                             labelText: 'Password',
                             hintText: 'Enter password (use 1234)', // คำแนะนำ

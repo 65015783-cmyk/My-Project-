@@ -18,7 +18,13 @@ class ApiConfig {
   static String get checkInUrl => '$baseUrl/api/attendance/checkin';
   static String get checkOutUrl => '$baseUrl/api/attendance/checkout';
   static String get leaveRequestUrl => '$baseUrl/api/leave/request';
+  static String get leaveHistoryUrl => '$baseUrl/api/leave/history';
+  static String get leavePendingUrl => '$baseUrl/api/leave/pending';
+  static String get leaveStatusUrl => '$baseUrl/api/leave';
   static String get profileUrl => '$baseUrl/api/profile';
+  static String get leaveSummaryUrl => '$baseUrl/api/admin/leave-summary';
+  static String get leaveDetailsUrl => '$baseUrl/api/admin/leave-details';
+  static String get notificationsUrl => '$baseUrl/api/notifications';
   
   // Headers
   static Map<String, String> get headers => {

@@ -175,6 +175,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         // Username Field
                         TextFormField(
                           controller: _usernameController,
+                          keyboardType: TextInputType.text,
+                          textInputAction: TextInputAction.next,
+                          enableSuggestions: true,
+                          autocorrect: false,
                           decoration: _inputDecoration('Username', Icons.person_outline),
                           validator: (value) => value == null || value.isEmpty ? 'Please enter a username' : null,
                         ),
@@ -183,6 +187,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         TextFormField(
                           controller: _emailController,
                           keyboardType: TextInputType.emailAddress,
+                          textInputAction: TextInputAction.next,
+                          enableSuggestions: true,
+                          autocorrect: false,
                           decoration: _inputDecoration('Email', Icons.email_outlined),
                           validator: (value) {
                             if (value == null || !value.contains('@')) {
@@ -196,6 +203,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         TextFormField(
                           controller: _passwordController,
                           obscureText: _obscurePassword,
+                          keyboardType: TextInputType.visiblePassword,
+                          textInputAction: TextInputAction.next,
+                          enableSuggestions: false,
+                          autocorrect: false,
                           decoration: _passwordDecoration('Password', Icons.lock_outline, _obscurePassword, () {
                             setState(() {
                               _obscurePassword = !_obscurePassword;
@@ -208,6 +219,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         TextFormField(
                           controller: _confirmPasswordController,
                           obscureText: _obscureConfirmPassword,
+                          keyboardType: TextInputType.visiblePassword,
+                          textInputAction: TextInputAction.done,
+                          enableSuggestions: false,
+                          autocorrect: false,
                           decoration: _passwordDecoration('Confirm Password', Icons.lock_open_outlined, _obscureConfirmPassword, () {
                             setState(() {
                               _obscureConfirmPassword = !_obscureConfirmPassword;

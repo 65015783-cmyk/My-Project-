@@ -12,9 +12,12 @@ router.get('/', authenticateToken, async (req, res) => {
     connection = await pool.getConnection();
 
     const [users] = await connection.execute(
-      `SELECT id, username, email, first_name, last_name, position, role, avatar_url, created_at 
-       FROM users 
-       WHERE id = ?`,
+      `SELECT e.employee_id as id, e.user_id, e.first_name, e.last_name, e.phone_number, 
+              e.date_of_birth, e.position, e.department,
+              l.email, l.role
+       FROM employees e
+       LEFT JOIN login l ON e.user_id = l.user_id
+       WHERE e.user_id = ?`,
       [userId]
     );
 
@@ -22,7 +25,15 @@ router.get('/', authenticateToken, async (req, res) => {
       return res.status(404).json({ message: 'ไม่พบข้อมูลผู้ใช้' });
     }
 
-    res.json({ user: users[0] });
+    const user = users[0];
+    // ใช้ role จาก login table แทน is_manager
+    const response = {
+      ...user,
+      // isManager จะถูกคำนวณจาก role ใน frontend
+      role: user.role,
+    };
+    
+    res.json({ user: response });
   } catch (error) {
     console.error('Get profile error:', error);
     res.status(500).json({ message: 'เกิดข้อผิดพลาด' });
@@ -36,15 +47,17 @@ router.put('/', authenticateToken, async (req, res) => {
   let connection;
   try {
     const userId = req.user.user_id;
-    const { firstName, lastName, position, avatarUrl } = req.body;
+    const { firstName, lastName, position, phoneNumber, dateOfBirth, department } = req.body;
 
     connection = await pool.getConnection();
 
     await connection.execute(
-      `UPDATE users 
-       SET first_name = ?, last_name = ?, position = ?, avatar_url = ?, updated_at = NOW() 
-       WHERE id = ?`,
-      [firstName || '', lastName || '', position || '', avatarUrl || '', userId]
+      `UPDATE employees 
+       SET first_name = ?, last_name = ?, position = ?, phone_number = ?, 
+           date_of_birth = ?, department = ? 
+       WHERE user_id = ?`,
+      [firstName || '', lastName || '', position || '', phoneNumber || '', 
+       dateOfBirth || null, department || '', userId]
     );
 
     res.json({ message: 'อัปเดตโปรไฟล์สำเร็จ' });

@@ -155,6 +155,10 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
       child: TextFormField(
         controller: controller,
         obscureText: obscureText,
+        keyboardType: TextInputType.visiblePassword,
+        textInputAction: TextInputAction.next,
+        enableSuggestions: false,
+        autocorrect: false,
         validator: validator,
         decoration: InputDecoration(
           labelText: label,

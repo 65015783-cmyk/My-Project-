@@ -171,6 +171,7 @@ class _EmployeeManagementScreenState extends State<EmployeeManagementScreen> {
                   ),
                   items: const [
                     DropdownMenuItem(value: 'employee', child: Text('Employee')),
+                    DropdownMenuItem(value: 'manager', child: Text('Manager')),
                     DropdownMenuItem(value: 'admin', child: Text('Admin')),
                   ],
                   onChanged: (value) {
@@ -252,12 +253,40 @@ class _EmployeeManagementScreenState extends State<EmployeeManagementScreen> {
           );
           _loadEmployees();
         } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('เกิดข้อผิดพลาดในการเพิ่มพนักงาน'),
-              backgroundColor: Colors.red,
-            ),
-          );
+          try {
+            final errorData = json.decode(response.body) as Map<String, dynamic>?;
+            final errorMessage = errorData?['message'] ?? 'เกิดข้อผิดพลาดในการเพิ่มพนักงาน';
+            final hint = errorData?['hint'];
+            
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(errorMessage),
+                    if (hint != null) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        hint,
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                    ],
+                  ],
+                ),
+                backgroundColor: Colors.red,
+                duration: const Duration(seconds: 8),
+              ),
+            );
+          } catch (e) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('เกิดข้อผิดพลาด: ${response.statusCode}'),
+                backgroundColor: Colors.red,
+                duration: const Duration(seconds: 5),
+              ),
+            );
+          }
         }
       }
     } catch (e) {
@@ -300,12 +329,40 @@ class _EmployeeManagementScreenState extends State<EmployeeManagementScreen> {
           );
           _loadEmployees();
         } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('เกิดข้อผิดพลาดในการแก้ไข'),
-              backgroundColor: Colors.red,
-            ),
-          );
+          try {
+            final errorData = json.decode(response.body) as Map<String, dynamic>?;
+            final errorMessage = errorData?['message'] ?? 'เกิดข้อผิดพลาดในการแก้ไข';
+            final hint = errorData?['hint'];
+            
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(errorMessage),
+                    if (hint != null) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        hint,
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                    ],
+                  ],
+                ),
+                backgroundColor: Colors.red,
+                duration: const Duration(seconds: 8),
+              ),
+            );
+          } catch (e) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('เกิดข้อผิดพลาด: ${response.statusCode}'),
+                backgroundColor: Colors.red,
+                duration: const Duration(seconds: 5),
+              ),
+            );
+          }
         }
       }
     } catch (e) {
@@ -384,7 +441,27 @@ class _EmployeeManagementScreenState extends State<EmployeeManagementScreen> {
   }
 
   Widget _buildEmployeeCard(Map<String, dynamic> employee) {
-    final isAdmin = employee['role'] == 'admin';
+    final role = employee['role'] ?? 'employee';
+    final isAdmin = role == 'admin';
+    final isManager = role == 'manager';
+    
+    Color getRoleColor() {
+      if (isAdmin) return const Color(0xFFFF9800);
+      if (isManager) return const Color(0xFFFF6B00);
+      return const Color(0xFF4CAF50);
+    }
+    
+    String getRoleLabel() {
+      if (isAdmin) return 'Admin';
+      if (isManager) return 'Manager';
+      return 'Employee';
+    }
+    
+    IconData getRoleIcon() {
+      if (isAdmin) return Icons.admin_panel_settings;
+      if (isManager) return Icons.verified_user;
+      return Icons.person;
+    }
     
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
@@ -404,14 +481,12 @@ class _EmployeeManagementScreenState extends State<EmployeeManagementScreen> {
         leading: Container(
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
-            color: isAdmin 
-                ? const Color(0xFFFF9800).withValues(alpha: 0.1)
-                : const Color(0xFF2196F3).withValues(alpha: 0.1),
+            color: getRoleColor().withValues(alpha: 0.1),
             borderRadius: BorderRadius.circular(12),
           ),
           child: Icon(
-            isAdmin ? Icons.admin_panel_settings : Icons.person,
-            color: isAdmin ? const Color(0xFFFF9800) : const Color(0xFF2196F3),
+            getRoleIcon(),
+            color: getRoleColor(),
           ),
         ),
         title: Text(
@@ -433,17 +508,15 @@ class _EmployeeManagementScreenState extends State<EmployeeManagementScreen> {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               decoration: BoxDecoration(
-                color: isAdmin 
-                    ? const Color(0xFFFF9800).withValues(alpha: 0.1)
-                    : const Color(0xFF4CAF50).withValues(alpha: 0.1),
+                color: getRoleColor().withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Text(
-                isAdmin ? 'Admin' : 'Employee',
+                getRoleLabel(),
                 style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
-                  color: isAdmin ? const Color(0xFFFF9800) : const Color(0xFF4CAF50),
+                  color: getRoleColor(),
                 ),
               ),
             ),

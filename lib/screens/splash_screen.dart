@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:http/http.dart' as http;
 import '../main.dart';
+import '../config/api_config.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -13,12 +16,79 @@ class _SplashScreenState extends State<SplashScreen> {
   void initState() {
     super.initState();
     // แสดงโลโก้สั้น ๆ ก่อนเข้าแอปหลัก
-    Future.delayed(const Duration(seconds: 2), () {
-      if (!mounted) return;
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => const MainScreen()),
-      );
-    });
+    _checkAuthAndNavigate();
+  }
+
+  Future<void> _checkAuthAndNavigate() async {
+    await Future.delayed(const Duration(seconds: 2));
+    
+    if (!mounted) return;
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('auth_token');
+
+      print('[SPLASH] Checking auth - token: ${token != null ? "exists" : "null"}');
+
+      // ถ้าไม่มี token ให้ไปหน้า login
+      if (token == null || token.isEmpty) {
+        print('[SPLASH] No token, redirecting to login');
+        Navigator.of(context).pushReplacementNamed('/login');
+        return;
+      }
+
+      // ตรวจสอบว่า token ยัง valid หรือไม่โดยเรียก profile API
+      try {
+        final response = await http.get(
+          Uri.parse(ApiConfig.profileUrl),
+          headers: ApiConfig.headersWithAuth(token),
+        );
+
+        if (!mounted) return;
+
+        if (response.statusCode == 200) {
+          // Token ยัง valid - redirect ตาม role
+          final role = prefs.getString('role')?.trim().toLowerCase() ?? 'employee';
+          print('[SPLASH] Token valid, redirecting based on role: "$role"');
+          
+          if (role == 'admin') {
+            print('[SPLASH] Redirecting to Admin Dashboard');
+            Navigator.of(context).pushReplacementNamed('/admin');
+          } else {
+            print('[SPLASH] Redirecting to Home');
+            Navigator.of(context).pushReplacementNamed('/home');
+          }
+        } else {
+          // Token ไม่ valid หรือ expired - ลบ token และไปหน้า login
+          print('[SPLASH] Token invalid or expired (status: ${response.statusCode}), redirecting to login');
+          await prefs.remove('auth_token');
+          await prefs.remove('role');
+          await prefs.remove('user_id');
+          await prefs.remove('username');
+          await prefs.remove('email');
+          if (mounted) {
+            Navigator.of(context).pushReplacementNamed('/login');
+          }
+        }
+      } catch (e) {
+        // Network error หรือ error อื่นๆ - ลบ token และไปหน้า login
+        print('[SPLASH] Error validating token: $e, redirecting to login');
+        await prefs.remove('auth_token');
+        await prefs.remove('role');
+        await prefs.remove('user_id');
+        await prefs.remove('username');
+        await prefs.remove('email');
+        if (mounted) {
+          Navigator.of(context).pushReplacementNamed('/login');
+        }
+      }
+    } catch (e) {
+      print('[SPLASH] Error: $e');
+      // ถ้าเกิด error ให้ไปหน้า login
+      if (mounted) {
+        Navigator.of(context).pushReplacementNamed('/login');
+      }
+    }
   }
 
   @override

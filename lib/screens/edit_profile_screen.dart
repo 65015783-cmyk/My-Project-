@@ -347,9 +347,13 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       ),
       child: TextFormField(
         controller: controller,
-        keyboardType: keyboardType,
+        keyboardType: keyboardType ?? TextInputType.text,
+        textInputAction: TextInputAction.next,
+        enableSuggestions: true,
+        autocorrect: true,
         enabled: enabled,
         validator: validator,
+        // ไม่จำกัดการพิมพ์ - รองรับทั้งไทยและอังกฤษ
         decoration: InputDecoration(
           labelText: label,
           prefixIcon: Icon(icon, color: Colors.blue),

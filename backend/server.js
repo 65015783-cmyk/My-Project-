@@ -19,6 +19,8 @@ const employeesRoutes = require('./routes/employees');
 const attendanceRoutes = require('./routes/attendance');
 const leaveRoutes = require('./routes/leave');
 const profileRoutes = require('./routes/profile');
+const adminRoutes = require('./routes/admin');
+const notificationsRoutes = require('./routes/notifications');
 
 // Use Routes
 app.use('/api', authRoutes);
@@ -26,6 +28,8 @@ app.use('/api/employees', employeesRoutes);
 app.use('/api/attendance', attendanceRoutes);
 app.use('/api/leave', leaveRoutes);
 app.use('/api/profile', profileRoutes);
+app.use('/api/admin', adminRoutes);
+app.use('/api/notifications', notificationsRoutes);
 
 // Health Check
 app.get('/api/health', (req, res) => {
@@ -49,6 +53,6 @@ app.use((err, req, res, next) => {
 const PORT = config.port;
 app.listen(PORT, () => {
   console.log(`🚀 Humans HR Backend running on http://localhost:${PORT}`);
-  console.log(`📊 Database: ${config.mongodbUri}`);
+  console.log(`📊 Database: ${config.db.database}@${config.db.host}:${config.db.port}`);
 });
 

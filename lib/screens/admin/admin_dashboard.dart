@@ -4,6 +4,7 @@ import '../../services/auth_service.dart';
 import 'employee_management_screen.dart';
 import 'attendance_management_screen.dart';
 import 'leave_management_screen.dart';
+import 'hr_dashboard_screen.dart';
 
 class AdminDashboard extends StatelessWidget {
   const AdminDashboard({super.key});
@@ -12,6 +13,17 @@ class AdminDashboard extends StatelessWidget {
   Widget build(BuildContext context) {
     final authService = Provider.of<AuthService>(context);
     final user = authService.currentUser;
+
+    // ตรวจสอบว่า user เป็น admin หรือไม่
+    if (user == null || !user.isAdmin) {
+      // ถ้าไม่ใช่ admin ให้ redirect ไปหน้า home
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        Navigator.of(context).pushReplacementNamed('/home');
+      });
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
@@ -98,6 +110,31 @@ class AdminDashboard extends StatelessWidget {
                   ),
                 ],
               ),
+            ),
+            const SizedBox(height: 32),
+            // HR Dashboard Section
+            const Text(
+              'HR Dashboard',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+                color: Colors.black87,
+              ),
+            ),
+            const SizedBox(height: 16),
+            _buildManagementCard(
+              context,
+              title: 'สรุปข้อมูลวันลา',
+              subtitle: 'ดูสรุปวันลาของพนักงานทั้งหมด และข้อมูลสำหรับผู้บริหาร',
+              icon: Icons.dashboard,
+              color: const Color(0xFF9C27B0),
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (context) => const HRDashboardScreen(),
+                  ),
+                );
+              },
             ),
             const SizedBox(height: 32),
             // Management Cards
