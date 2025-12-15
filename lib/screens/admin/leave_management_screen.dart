@@ -5,6 +5,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../../config/api_config.dart';
 import '../../services/auth_service.dart';
+import '../../services/notification_service.dart';
 import 'package:intl/intl.dart';
 
 class LeaveManagementScreen extends StatefulWidget {
@@ -14,7 +15,7 @@ class LeaveManagementScreen extends StatefulWidget {
   State<LeaveManagementScreen> createState() => _LeaveManagementScreenState();
 }
 
-class _LeaveManagementScreenState extends State<LeaveManagementScreen> {
+class _LeaveManagementScreenState extends State<LeaveManagementScreen> with WidgetsBindingObserver {
   bool _isLoading = true;
   List<dynamic> _pendingLeaves = [];
   String? _filterDepartment;
@@ -22,7 +23,22 @@ class _LeaveManagementScreenState extends State<LeaveManagementScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _loadPendingLeaves();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // รีเฟรชข้อมูลเมื่อแอปกลับมา foreground
+    if (state == AppLifecycleState.resumed) {
+      _loadPendingLeaves();
+    }
   }
 
   Future<void> _loadPendingLeaves() async {
@@ -41,15 +57,24 @@ class _LeaveManagementScreenState extends State<LeaveManagementScreen> {
         return;
       }
 
+      print('[Leave Management] Loading leaves for admin...');
       final response = await http.get(
         Uri.parse(ApiConfig.leavePendingUrl),
         headers: ApiConfig.headersWithAuth(token),
       );
 
+      print('[Leave Management] Response status: ${response.statusCode}');
+      print('[Leave Management] Response body: ${response.body}');
+
       if (response.statusCode == 200) {
         final data = json.decode(response.body) as Map<String, dynamic>;
+        final leaves = data['leaves'] as List<dynamic>? ?? [];
+        print('[Leave Management] Found ${leaves.length} leaves');
+        if (leaves.isNotEmpty) {
+          print('[Leave Management] Sample leave: ${leaves[0]}');
+        }
         setState(() {
-          _pendingLeaves = data['leaves'] as List<dynamic>? ?? [];
+          _pendingLeaves = leaves;
           _isLoading = false;
         });
       } else {
@@ -286,8 +311,8 @@ class _LeaveManagementScreenState extends State<LeaveManagementScreen> {
     final authService = Provider.of<AuthService>(context);
     final user = authService.currentUser;
 
-    // ตรวจสอบสิทธิ์: ต้องเป็น admin หรือ manager (role = 'manager') เท่านั้น
-    if (user == null || !user.canApproveLeave) {
+    // ตรวจสอบสิทธิ์: ต้องเป็น admin หรือ manager เท่านั้น
+    if (user == null || (!user.isAdmin && !user.isManagerRole)) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         Navigator.of(context).pop();
         ScaffoldMessenger.of(context).showSnackBar(
@@ -301,6 +326,8 @@ class _LeaveManagementScreenState extends State<LeaveManagementScreen> {
         body: Center(child: CircularProgressIndicator()),
       );
     }
+
+    final bool isAdminView = user.isAdmin; // Admin เห็นเฉพาะ approved/rejected, Manager เห็น pending
 
     // กรองตามแผนก (ถ้ามี)
     final filteredLeaves = _filterDepartment == null
@@ -323,9 +350,9 @@ class _LeaveManagementScreenState extends State<LeaveManagementScreen> {
       appBar: AppBar(
         backgroundColor: Colors.white,
         elevation: 0,
-        title: const Text(
-          'อนุมัติการลา',
-          style: TextStyle(
+        title: Text(
+          isAdminView ? 'ประวัติการลา' : 'อนุมัติการลา',
+          style: const TextStyle(
             fontWeight: FontWeight.bold,
             color: Colors.black87,
           ),
@@ -333,7 +360,14 @@ class _LeaveManagementScreenState extends State<LeaveManagementScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh, color: Colors.blue),
-            onPressed: _loadPendingLeaves,
+            onPressed: () {
+              _loadPendingLeaves();
+              // อัปเดตจำนวนการแจ้งเตือนด้วย
+              if (mounted) {
+                final notificationService = Provider.of<NotificationService>(context, listen: false);
+                notificationService.loadNotificationCount();
+              }
+            },
             tooltip: 'รีเฟรชข้อมูล',
           ),
         ],
@@ -353,34 +387,50 @@ class _LeaveManagementScreenState extends State<LeaveManagementScreen> {
                             padding: const EdgeInsets.all(16),
                             decoration: BoxDecoration(
                               gradient: LinearGradient(
-                                colors: [Colors.orange[100]!, Colors.orange[50]!],
+                                colors: isAdminView 
+                                  ? [Colors.blue[100]!, Colors.blue[50]!]
+                                  : [Colors.orange[100]!, Colors.orange[50]!],
                               ),
                               borderRadius: BorderRadius.circular(16),
-                              border: Border.all(color: Colors.orange[200]!),
+                              border: Border.all(
+                                color: isAdminView 
+                                  ? Colors.blue[200]!
+                                  : Colors.orange[200]!,
+                              ),
                             ),
                             child: Row(
                               children: [
-                                Icon(Icons.pending_actions, 
-                                    size: 32, 
-                                    color: Colors.orange[700]),
+                                Icon(
+                                  isAdminView ? Icons.history : Icons.pending_actions, 
+                                  size: 32, 
+                                  color: isAdminView ? Colors.blue[700] : Colors.orange[700],
+                                ),
                                 const SizedBox(width: 12),
                                 Expanded(
                                   child: Column(
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
                                       Text(
-                                        'มี ${filteredLeaves.length} รายการรออนุมัติ',
+                                        isAdminView
+                                          ? 'มี ${filteredLeaves.length} รายการที่อนุมัติ/ปฏิเสธแล้ว'
+                                          : 'มี ${filteredLeaves.length} รายการรออนุมัติ',
                                         style: TextStyle(
                                           fontSize: 18,
                                           fontWeight: FontWeight.bold,
-                                          color: Colors.orange[900],
+                                          color: isAdminView 
+                                            ? Colors.blue[900]
+                                            : Colors.orange[900],
                                         ),
                                       ),
                                       Text(
-                                        'กรุณาพิจารณาและอนุมัติ/ปฏิเสธ',
+                                        isAdminView
+                                          ? 'ดูประวัติการอนุมัติ/ปฏิเสธการลา'
+                                          : 'กรุณาพิจารณาและอนุมัติ/ปฏิเสธ',
                                         style: TextStyle(
                                           fontSize: 12,
-                                          color: Colors.orange[700],
+                                          color: isAdminView 
+                                            ? Colors.blue[700]
+                                            : Colors.orange[700],
                                         ),
                                       ),
                                     ],
@@ -409,7 +459,7 @@ class _LeaveManagementScreenState extends State<LeaveManagementScreen> {
                                   ),
                                 ),
                               ...entry.value.map((leave) {
-                                return _buildLeaveRequestCard(leave);
+                                return _buildLeaveRequestCard(leave, isAdminView);
                               }).toList(),
                               if (entry != leavesByDept.entries.last)
                                 const SizedBox(height: 16),
@@ -422,7 +472,7 @@ class _LeaveManagementScreenState extends State<LeaveManagementScreen> {
     );
   }
 
-  Widget _buildLeaveRequestCard(Map<String, dynamic> leave) {
+  Widget _buildLeaveRequestCard(Map<String, dynamic> leave, bool isAdminView) {
     final leaveId = leave['id'] as int;
     final employeeId = leave['employee_id'];
     final employeeName = leave['employee_name']?.toString() ?? 'ไม่ระบุชื่อ';
@@ -435,6 +485,7 @@ class _LeaveManagementScreenState extends State<LeaveManagementScreen> {
     final totalDays = leave['total_days'] ?? 0;
     final reason = leave['reason']?.toString() ?? '';
     final createdAt = leave['created_at']?.toString() ?? '';
+    final status = leave['status']?.toString() ?? 'pending';
 
     // สร้าง avatar initial จากชื่อ
     String getInitials(String name) {
@@ -730,39 +781,94 @@ class _LeaveManagementScreenState extends State<LeaveManagementScreen> {
                     ),
                   ],
                 ),
-                const SizedBox(height: 16),
-
-                // Action Buttons
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: () => _showRejectionDialog(leaveId, employeeName),
-                        icon: const Icon(Icons.close, size: 18),
-                        label: const Text('ปฏิเสธ'),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: Colors.red,
-                          side: const BorderSide(color: Colors.red),
-                          padding: const EdgeInsets.symmetric(vertical: 12),
+                const SizedBox(height: 12),
+                
+                // Status and Approver Info (for admin view)
+                if (isAdminView) ...[
+                  Row(
+                    children: [
+                      Icon(
+                        status == 'approved' ? Icons.check_circle : Icons.cancel,
+                        size: 14,
+                        color: status == 'approved' ? Colors.green : Colors.red,
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        'สถานะ: ${status == 'approved' ? 'อนุมัติแล้ว' : 'ปฏิเสธแล้ว'}',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: status == 'approved' ? Colors.green : Colors.red,
                         ),
                       ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      flex: 2,
-                      child: ElevatedButton.icon(
-                        onPressed: () => _showApprovalDialog(leaveId, employeeName),
-                        icon: const Icon(Icons.check, size: 18),
-                        label: const Text('อนุมัติ'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.green,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 12),
+                    ],
+                  ),
+                  if (leave['approver_name'] != null) ...[
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        Icon(Icons.person, size: 12, color: Colors.grey[500]),
+                        const SizedBox(width: 4),
+                        Text(
+                          'อนุมัติโดย: ${leave['approver_name']}',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.grey[600],
+                          ),
                         ),
-                      ),
+                      ],
                     ),
                   ],
-                ),
+                  if (leave['approved_at'] != null) ...[
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        Icon(Icons.access_time, size: 12, color: Colors.grey[500]),
+                        const SizedBox(width: 4),
+                        Text(
+                          'เมื่อ: ${DateFormat('dd/MM/yyyy HH:mm').format(DateTime.parse(leave['approved_at']).toLocal())}',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.grey[500],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ] else ...[
+                  // Action Buttons (only for manager)
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: () => _showRejectionDialog(leaveId, employeeName),
+                          icon: const Icon(Icons.close, size: 18),
+                          label: const Text('ปฏิเสธ'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.red,
+                            side: const BorderSide(color: Colors.red),
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        flex: 2,
+                        child: ElevatedButton.icon(
+                          onPressed: () => _showApprovalDialog(leaveId, employeeName),
+                          icon: const Icon(Icons.check, size: 18),
+                          label: const Text('อนุมัติ'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.green,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
               ],
             ),
           ),
@@ -772,14 +878,24 @@ class _LeaveManagementScreenState extends State<LeaveManagementScreen> {
   }
 
   Widget _buildEmptyState() {
+    final authService = Provider.of<AuthService>(context);
+    final user = authService.currentUser;
+    final bool isAdminView = user?.isAdmin ?? false;
+
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.check_circle_outline, size: 80, color: Colors.green[300]),
+          Icon(
+            isAdminView ? Icons.history : Icons.check_circle_outline, 
+            size: 80, 
+            color: isAdminView ? Colors.blue[300] : Colors.green[300],
+          ),
           const SizedBox(height: 16),
           Text(
-            'ไม่มีคำขอลารออนุมัติ',
+            isAdminView 
+              ? 'ไม่มีประวัติการลา' 
+              : 'ไม่มีคำขอลารออนุมัติ',
             style: TextStyle(
               fontSize: 18,
               fontWeight: FontWeight.bold,
@@ -788,7 +904,9 @@ class _LeaveManagementScreenState extends State<LeaveManagementScreen> {
           ),
           const SizedBox(height: 8),
           Text(
-            'ทุกคำขอลาได้รับการอนุมัติแล้ว',
+            isAdminView
+              ? 'ยังไม่มีคำขอลาที่ได้รับการอนุมัติหรือปฏิเสธ'
+              : 'ทุกคำขอลาได้รับการอนุมัติแล้ว',
             style: TextStyle(
               fontSize: 14,
               color: Colors.grey[600],

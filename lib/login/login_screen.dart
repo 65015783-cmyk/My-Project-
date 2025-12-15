@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import '../register/register.dart';
 import '../config/api_config.dart';
 import '../services/auth_service.dart';
+import '../services/attendance_service.dart';
 
 
 /// ----------------------------------------------------------------
@@ -164,7 +165,8 @@ class _LoginScreenState extends State<LoginScreen> {
           // อัปเดต AuthService ด้วยข้อมูลผู้ใช้
           try {
             final authService = Provider.of<AuthService>(context, listen: false);
-            await authService.setUserFromLogin(data);
+            final attendanceService = Provider.of<AttendanceService>(context, listen: false);
+            await authService.setUserFromLogin(data, attendanceService: attendanceService);
           } catch (e) {
             print('Error updating AuthService: $e');
           }

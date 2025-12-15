@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:share_plus/share_plus.dart';
 import '../../config/api_config.dart';
+import 'leave_list_screen.dart';
 
 class HRDashboardScreen extends StatefulWidget {
   const HRDashboardScreen({super.key});
@@ -19,6 +20,7 @@ class _HRDashboardScreenState extends State<HRDashboardScreen> {
   Map<String, dynamic>? _totals;
   bool _showEmployeeList = false; // ควบคุมการแสดงรายชื่อพนักงาน
   String? _selectedDepartment; // แผนกที่เลือก
+  int? _currentYear; // ปีที่กำลังแสดง
 
   @override
   void initState() {
@@ -54,6 +56,7 @@ class _HRDashboardScreenState extends State<HRDashboardScreen> {
           _summaryData = data;
           _employeeSummary = data['summary'] as List<dynamic>?;
           _totals = data['totals'] as Map<String, dynamic>?;
+          _currentYear = data['year'] as int? ?? DateTime.now().year;
           _isLoading = false;
         });
         
@@ -154,17 +157,48 @@ class _HRDashboardScreenState extends State<HRDashboardScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'สรุปข้อมูลวันลา',
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-                color: Colors.black87,
-              ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'สรุปข้อมูลวันลา',
+                        style: TextStyle(
+                          fontSize: 24,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.black87,
+                        ),
+                      ),
+                      if (_currentYear != null) ...[
+                        const SizedBox(height: 4),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: Colors.blue[50],
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: Colors.blue[200]!),
+                          ),
+                          child: Text(
+                            'ปี ${_currentYear}',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.blue[700],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: 8),
             Text(
-              'กดการ์ดเพื่อดูรายละเอียด',
+              'กดการ์ดเพื่อดูรายละเอียดพนักงานแต่ละคน',
               style: TextStyle(
                 fontSize: 14,
                 color: Colors.grey[600],
@@ -606,7 +640,14 @@ class _HRDashboardScreenState extends State<HRDashboardScreen> {
           icon: Icons.check_circle,
           color: Colors.green,
           onTap: () {
-            // สามารถเพิ่มฟังก์ชันได้ในอนาคต
+            Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (context) => const LeaveListScreen(
+                  status: 'approved',
+                  title: 'อนุมัติแล้ว',
+                ),
+              ),
+            );
           },
         ),
         const SizedBox(height: 16),
@@ -616,7 +657,14 @@ class _HRDashboardScreenState extends State<HRDashboardScreen> {
           icon: Icons.pending,
           color: Colors.orange,
           onTap: () {
-            // สามารถเพิ่มฟังก์ชันได้ในอนาคต
+            Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (context) => const LeaveListScreen(
+                  status: 'pending',
+                  title: 'รออนุมัติ',
+                ),
+              ),
+            );
           },
         ),
         const SizedBox(height: 16),
@@ -626,7 +674,14 @@ class _HRDashboardScreenState extends State<HRDashboardScreen> {
           icon: Icons.cancel,
           color: Colors.red,
           onTap: () {
-            // สามารถเพิ่มฟังก์ชันได้ในอนาคต
+            Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (context) => const LeaveListScreen(
+                  status: 'rejected',
+                  title: 'ไม่อนุมัติ',
+                ),
+              ),
+            );
           },
         ),
       ],
@@ -980,6 +1035,7 @@ class _HRDashboardScreenState extends State<HRDashboardScreen> {
                       totalLeave.toString(),
                       Colors.blue,
                       Icons.event,
+                      subtitle: 'ลาไปแล้วทั้งหมด',
                     ),
                   ),
                   const SizedBox(width: 8),
@@ -1022,6 +1078,7 @@ class _HRDashboardScreenState extends State<HRDashboardScreen> {
                       remainingLeave < 5 ? Colors.red : Colors.green,
                       Icons.event_available,
                       highlight: true,
+                      subtitle: 'ปี ${_currentYear ?? DateTime.now().year}',
                     ),
                   ),
                 ],
@@ -1033,7 +1090,7 @@ class _HRDashboardScreenState extends State<HRDashboardScreen> {
     );
   }
 
-  Widget _buildStatItem(String label, String value, Color color, IconData icon, {bool highlight = false}) {
+  Widget _buildStatItem(String label, String value, Color color, IconData icon, {bool highlight = false, String? subtitle}) {
     return Container(
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
@@ -1061,9 +1118,21 @@ class _HRDashboardScreenState extends State<HRDashboardScreen> {
             style: TextStyle(
               fontSize: 11,
               color: Colors.grey[600],
+              fontWeight: FontWeight.w500,
             ),
             textAlign: TextAlign.center,
           ),
+          if (subtitle != null) ...[
+            const SizedBox(height: 2),
+            Text(
+              subtitle,
+              style: TextStyle(
+                fontSize: 9,
+                color: Colors.grey[500],
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
         ],
       ),
     );
@@ -1188,37 +1257,66 @@ class _HRDashboardScreenState extends State<HRDashboardScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
-                      'สรุปข้อมูลวันลา',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          'สรุปข้อมูลวันลา',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        if (_currentYear != null)
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: Colors.blue[50],
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: Colors.blue[200]!),
+                            ),
+                            child: Text(
+                              'ปี $_currentYear',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.blue[700],
+                              ),
+                            ),
+                          ),
+                      ],
                     ),
                     const SizedBox(height: 16),
-                    _buildDetailRow('ลาทั้งหมด', totalLeave.toString(), Colors.blue),
-                    _buildDetailRow('ลาป่วย', sickLeave.toString(), Colors.blue[300]!),
-                    _buildDetailRow('ลากิจส่วนตัว', personalLeave.toString(), Colors.purple[300]!),
-                    _buildDetailRow('รออนุมัติ', pendingLeave.toString(), Colors.orange),
-                    _buildDetailRow('วันลาที่เหลือ', remainingLeave.toString(), 
+                    // แสดงวันลาทั้งหมดที่ลาไปแล้ว (ไม่จำกัดปี)
+                    _buildDetailRow('ลาทั้งหมดที่ลาไปแล้ว', '${totalLeave} วัน', Colors.blue),
+                    const SizedBox(height: 4),
+                    _buildDetailRow('  - ลาป่วย', '${sickLeave} วัน', Colors.blue[300]!),
+                    _buildDetailRow('  - ลากิจส่วนตัว', '${personalLeave} วัน', Colors.purple[300]!),
+                    const SizedBox(height: 8),
+                    _buildDetailRow('รออนุมัติ', '${pendingLeave} วัน', Colors.orange),
+                    // แสดงวันลาที่เหลือตามปีปัจจุบัน
+                    _buildDetailRow('วันลาที่เหลือ (ปี $_currentYear)', '${remainingLeave} วัน', 
                         remainingLeave < 5 ? Colors.red : Colors.green, isHighlight: true),
                     const SizedBox(height: 24),
                     Container(
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
-                        color: Colors.grey[100],
+                        color: Colors.blue[50],
                         borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.blue[200]!),
                       ),
                       child: Row(
                         children: [
-                          Icon(Icons.info_outline, size: 20, color: Colors.grey[600]),
+                          Icon(Icons.info_outline, size: 20, color: Colors.blue[700]),
                           const SizedBox(width: 8),
                           Expanded(
                             child: Text(
-                              'วันลาที่เหลือคำนวณจาก 30 วันต่อปี',
+                              _currentYear != null
+                                  ? 'ข้อมูลนี้แสดงเฉพาะปี $_currentYear\nวันลาที่เหลือคำนวณจาก 30 วันต่อปี'
+                                  : 'วันลาที่เหลือคำนวณจาก 30 วันต่อปี',
                               style: TextStyle(
                                 fontSize: 12,
-                                color: Colors.grey[600],
+                                color: Colors.blue[900],
                               ),
                             ),
                           ),

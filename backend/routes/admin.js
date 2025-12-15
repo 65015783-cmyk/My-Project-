@@ -344,7 +344,14 @@ router.get('/leave-summary', authenticateToken, requireAdmin, async (req, res) =
   try {
     connection = await pool.getConnection();
 
+    // ดึงปีปัจจุบันหรือจาก query parameter
+    const currentYear = req.query.year ? parseInt(req.query.year) : new Date().getFullYear();
+    const yearStart = `${currentYear}-01-01`;
+    const yearEnd = `${currentYear}-12-31`;
+
     // ดึงข้อมูลสรุปวันลาของพนักงานทั้งหมด
+    // total_leave_days, sick_leave_days, personal_leave_days = คำนวณทั้งหมดที่ลาไปแล้ว (ไม่จำกัดปี)
+    // remaining_leave_days = คำนวณตามปีปัจจุบัน (30 วันต่อปี - วันลาที่ลาไปในปีปัจจุบัน)
     // หมายเหตุ: leaves.user_id อ้างอิงไปที่ employees.employee_id ไม่ใช่ login.user_id
     const [summary] = await connection.execute(
       `SELECT 
@@ -358,58 +365,65 @@ router.get('/leave-summary', authenticateToken, requireAdmin, async (req, res) =
         COALESCE(e.position, 'Employee') as position,
         COALESCE(e.department, '-') as department,
         COALESCE(l.email, '') as email,
-        -- นับจำนวนวันลาที่อนุมัติแล้ว
+        -- นับจำนวนวันลาที่อนุมัติแล้วทั้งหมด (ไม่จำกัดปี - เพื่อดูว่าลาไปแล้วทั้งหมดกี่วัน)
         COALESCE(SUM(CASE WHEN lv.status = 'approved' THEN 
           DATEDIFF(lv.end_date, lv.start_date) + 1 
         ELSE 0 END), 0) as total_leave_days,
-        -- นับจำนวนวันลาป่วย
+        -- นับจำนวนวันลาป่วยทั้งหมด (ไม่จำกัดปี)
         COALESCE(SUM(CASE WHEN lv.status = 'approved' AND lv.leave_type = 'sick' THEN 
           DATEDIFF(lv.end_date, lv.start_date) + 1 
         ELSE 0 END), 0) as sick_leave_days,
-        -- นับจำนวนวันลากิจส่วนตัว
+        -- นับจำนวนวันลากิจส่วนตัวทั้งหมด (ไม่จำกัดปี)
         COALESCE(SUM(CASE WHEN lv.status = 'approved' AND lv.leave_type = 'personal' THEN 
           DATEDIFF(lv.end_date, lv.start_date) + 1 
         ELSE 0 END), 0) as personal_leave_days,
-        -- นับจำนวนวันลาที่รออนุมัติ
+        -- นับจำนวนวันลาที่รออนุมัติ (ไม่จำกัดปี)
         COALESCE(SUM(CASE WHEN lv.status = 'pending' THEN 
           DATEDIFF(lv.end_date, lv.start_date) + 1 
         ELSE 0 END), 0) as pending_leave_days,
-        -- จำนวนวันลาที่เหลือ (สมมติว่าได้ 30 วันต่อปี)
-        GREATEST(0, 30 - COALESCE(SUM(CASE WHEN lv.status = 'approved' THEN 
+        -- จำนวนวันลาที่เหลือ (คำนวณตามปีปัจจุบัน: 30 วันต่อปี - วันลาที่ลาไปในปีปัจจุบัน)
+        GREATEST(0, 30 - COALESCE(SUM(CASE WHEN lv.status = 'approved' AND YEAR(lv.start_date) = ? THEN 
           DATEDIFF(lv.end_date, lv.start_date) + 1 
-        ELSE 0 END), 0)) as remaining_leave_days
+        ELSE 0 END), 0)) as remaining_leave_days,
+        -- วันลาที่ลาไปในปีปัจจุบัน (สำหรับแสดงแยก)
+        COALESCE(SUM(CASE WHEN lv.status = 'approved' AND YEAR(lv.start_date) = ? THEN 
+          DATEDIFF(lv.end_date, lv.start_date) + 1 
+        ELSE 0 END), 0) as current_year_leave_days
       FROM login l
       LEFT JOIN employees e ON l.user_id = e.user_id
       LEFT JOIN leaves lv ON e.employee_id = lv.user_id
       WHERE l.role = 'employee'
       GROUP BY e.employee_id, l.user_id, e.first_name, e.last_name, e.position, e.department, l.email, l.username
-      ORDER BY e.first_name, e.last_name, l.username`
+      ORDER BY e.first_name, e.last_name, l.username`,
+      [currentYear, currentYear]
     );
 
-    // สรุปข้อมูลรวม
+    // สรุปข้อมูลรวม (กรองตามปี)
     const [totalSummary] = await connection.execute(
       `SELECT 
         COUNT(DISTINCT l.user_id) as total_employees,
-        COALESCE(SUM(CASE WHEN lv.status = 'approved' THEN 
+        COALESCE(SUM(CASE WHEN lv.status = 'approved' AND YEAR(lv.start_date) = ? THEN 
           DATEDIFF(lv.end_date, lv.start_date) + 1 
         ELSE 0 END), 0) as total_approved_days,
         COALESCE(SUM(CASE WHEN lv.status = 'pending' THEN 
           DATEDIFF(lv.end_date, lv.start_date) + 1 
         ELSE 0 END), 0) as total_pending_days,
-        COALESCE(SUM(CASE WHEN lv.status = 'rejected' THEN 
+        COALESCE(SUM(CASE WHEN lv.status = 'rejected' AND YEAR(lv.start_date) = ? THEN 
           DATEDIFF(lv.end_date, lv.start_date) + 1 
         ELSE 0 END), 0) as total_rejected_days
       FROM login l
       LEFT JOIN employees e ON l.user_id = e.user_id
       LEFT JOIN leaves lv ON e.employee_id = lv.user_id
-      WHERE l.role = 'employee'`
+      WHERE l.role = 'employee'`,
+      [currentYear, currentYear]
     );
     
-    console.log('[Leave Summary] Found employees:', summary.length);
+    console.log(`[Leave Summary] Year: ${currentYear}, Found employees:`, summary.length);
     console.log('[Leave Summary] Total summary:', totalSummary[0]);
 
     res.json({
       success: true,
+      year: currentYear,
       summary: summary,
       totals: totalSummary[0] || {
         total_employees: 0,

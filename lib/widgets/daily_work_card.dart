@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'dart:io';
 import '../models/attendance_model.dart';
 
-class DailyWorkCard extends StatelessWidget {
+class DailyWorkCard extends StatefulWidget {
   final AttendanceModel? attendance;
 
   const DailyWorkCard({
@@ -11,8 +11,64 @@ class DailyWorkCard extends StatelessWidget {
   });
 
   @override
+  State<DailyWorkCard> createState() => _DailyWorkCardState();
+}
+
+class _DailyWorkCardState extends State<DailyWorkCard> {
+  bool _imageExists = false;
+  String? _imagePath;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkImageExists();
+  }
+
+  @override
+  void didUpdateWidget(DailyWorkCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.attendance?.checkInImagePath != widget.attendance?.checkInImagePath) {
+      _checkImageExists();
+    }
+  }
+
+  Future<void> _checkImageExists() async {
+    final attendance = widget.attendance ?? _getDefaultAttendance();
+    final imagePath = attendance.checkInImagePath;
+    
+    if (imagePath != null && imagePath.isNotEmpty) {
+      try {
+        final file = File(imagePath);
+        final exists = await file.exists();
+        if (mounted) {
+          setState(() {
+            _imageExists = exists;
+            _imagePath = exists ? imagePath : null;
+          });
+        }
+      } catch (e) {
+        if (mounted) {
+          setState(() {
+            _imageExists = false;
+            _imagePath = null;
+          });
+        }
+      }
+    } else {
+      if (mounted) {
+        setState(() {
+          _imageExists = false;
+          _imagePath = null;
+        });
+      }
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final attendance = this.attendance ?? _getDefaultAttendance();
+    final attendance = widget.attendance ?? _getDefaultAttendance();
+    
+    print('[DailyWorkCard] Building - checkInTime: ${attendance.checkInTime}, formatted: ${attendance.checkInTimeFormatted}');
 
     return Container(
       padding: const EdgeInsets.all(24),
@@ -153,7 +209,7 @@ class DailyWorkCard extends StatelessWidget {
             ),
           ),
           // Check-in Image
-          if (attendance.checkInImagePath != null) ...[
+          if (_imageExists && _imagePath != null) ...[
             const SizedBox(height: 16),
             const Divider(
               color: Color(0xFFBBDEFB),
@@ -172,10 +228,28 @@ class DailyWorkCard extends StatelessWidget {
             ClipRRect(
               borderRadius: BorderRadius.circular(8),
               child: Image.file(
-                File(attendance.checkInImagePath!),
+                File(_imagePath!),
                 height: 150,
                 width: double.infinity,
                 fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) {
+                  // ถ้าโหลดรูปไม่สำเร็จ ให้แสดง placeholder
+                  return Container(
+                    height: 150,
+                    width: double.infinity,
+                    decoration: BoxDecoration(
+                      color: Colors.grey[200],
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Center(
+                      child: Icon(
+                        Icons.image_not_supported,
+                        color: Colors.grey,
+                        size: 48,
+                      ),
+                    ),
+                  );
+                },
               ),
             ),
           ],

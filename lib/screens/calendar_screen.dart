@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+import '../config/api_config.dart';
 
 class CalendarScreen extends StatefulWidget {
   const CalendarScreen({super.key});
@@ -11,6 +15,61 @@ class CalendarScreen extends StatefulWidget {
 class _CalendarScreenState extends State<CalendarScreen> {
   DateTime _selectedDate = DateTime.now();
   DateTime? _selectedDay;
+  bool _isLoading = true;
+  Map<String, dynamic>? _summaryData;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSummary();
+  }
+
+  Future<void> _loadSummary() async {
+    try {
+      setState(() {
+        _isLoading = true;
+      });
+
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('auth_token');
+
+      if (token == null) {
+        setState(() {
+          _isLoading = false;
+        });
+        return;
+      }
+
+      final currentYear = DateTime.now().year;
+      final response = await http.get(
+        Uri.parse('${ApiConfig.leaveMySummaryUrl}?year=$currentYear'),
+        headers: ApiConfig.headersWithAuth(token),
+      );
+
+      print('[Calendar Screen] Response status: ${response.statusCode}');
+      print('[Calendar Screen] Response body: ${response.body}');
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body) as Map<String, dynamic>;
+        print('[Calendar Screen] Parsed data: $data');
+        setState(() {
+          _summaryData = data;
+          _isLoading = false;
+        });
+      } else {
+        final errorData = json.decode(response.body) as Map<String, dynamic>?;
+        print('[Calendar Screen] Error response: $errorData');
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      print('[Calendar Screen] Error loading summary: $e');
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -196,28 +255,28 @@ class _CalendarScreenState extends State<CalendarScreen> {
           ),
           const SizedBox(height: 16),
           // Summary Section
-          Container(
-            margin: const EdgeInsets.symmetric(horizontal: 20),
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(20),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.06),
-                  blurRadius: 20,
-                  offset: const Offset(0, 4),
+          RefreshIndicator(
+            onRefresh: _loadSummary,
+            child: SingleChildScrollView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              child: Container(
+                margin: const EdgeInsets.symmetric(horizontal: 20),
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.06),
+                      blurRadius: 20,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
                 ),
-              ],
-            ),
-            child: Column(
-              children: [
-                _buildSummaryRow('วันทำงานทั้งหมด', '22 วัน', const Color(0xFF2196F3)),
-                const SizedBox(height: 12),
-                _buildSummaryRow('ลางาน', '3 วัน', const Color(0xFFFF9800)),
-                const SizedBox(height: 12),
-                _buildSummaryRow('มาทำงาน', '19 วัน', const Color(0xFF4CAF50)),
-              ],
+                child: _isLoading
+                    ? const Center(child: CircularProgressIndicator())
+                    : _buildSummaryContent(),
+              ),
             ),
           ),
           const SizedBox(height: 24),
@@ -232,7 +291,75 @@ class _CalendarScreenState extends State<CalendarScreen> {
         date1.day == date2.day;
   }
 
-  Widget _buildSummaryRow(String label, String value, Color color) {
+  int _parseInt(dynamic value) {
+    if (value == null) return 0;
+    if (value is int) return value;
+    if (value is String) {
+      return int.tryParse(value) ?? 0;
+    }
+    if (value is double) return value.toInt();
+    return 0;
+  }
+
+  Widget _buildSummaryContent() {
+    if (_summaryData == null) {
+      return Column(
+        children: [
+          const Text(
+            'ไม่สามารถโหลดข้อมูลได้',
+            style: TextStyle(
+              fontSize: 14,
+              color: Colors.grey,
+            ),
+          ),
+          const SizedBox(height: 8),
+          ElevatedButton.icon(
+            onPressed: _loadSummary,
+            icon: const Icon(Icons.refresh, size: 16),
+            label: const Text('ลองอีกครั้ง'),
+            style: ElevatedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            ),
+          ),
+        ],
+      );
+    }
+
+    final leaveSummary = _summaryData!['leave_summary'] as Map<String, dynamic>? ?? {};
+    final attendanceSummary = _summaryData!['attendance_summary'] as Map<String, dynamic>? ?? {};
+    final currentYear = _parseInt(_summaryData!['year']) != 0 
+        ? _parseInt(_summaryData!['year']) 
+        : DateTime.now().year;
+
+    final totalWorkDays = _parseInt(attendanceSummary['total_work_days']);
+    final daysWorked = _parseInt(attendanceSummary['days_worked']);
+    final leaveDays = _parseInt(attendanceSummary['leave_days']);
+    
+    // remaining_leave_days อาจเป็น 0 ได้ ถ้าเป็น null หรือไม่มีข้อมูลให้ใช้ default 30
+    final remainingLeaveValue = leaveSummary['remaining_leave_days'];
+    final remainingLeaveDays = remainingLeaveValue != null 
+        ? _parseInt(remainingLeaveValue) 
+        : 30;
+
+    return Column(
+      children: [
+        _buildSummaryRow('วันทำงานทั้งหมด', '$totalWorkDays วัน', const Color(0xFF2196F3)),
+        const SizedBox(height: 12),
+        _buildSummaryRow('ลางาน', '$leaveDays วัน', const Color(0xFFFF9800)),
+        const SizedBox(height: 12),
+        _buildSummaryRow('มาทำงาน', '$daysWorked วัน', const Color(0xFF4CAF50)),
+        const SizedBox(height: 12),
+        _buildSummaryRow(
+          'วันลาคงเหลือ (ปี $currentYear)', 
+          '$remainingLeaveDays วัน', 
+          remainingLeaveDays < 5 ? Colors.red : Colors.green,
+          isHighlight: true,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSummaryRow(String label, String value, Color color, {bool isHighlight = false}) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
@@ -262,6 +389,9 @@ class _CalendarScreenState extends State<CalendarScreen> {
           decoration: BoxDecoration(
             color: color.withValues(alpha: 0.1),
             borderRadius: BorderRadius.circular(12),
+            border: isHighlight
+                ? Border.all(color: color.withValues(alpha: 0.3), width: 1.5)
+                : null,
           ),
           child: Text(
             value,

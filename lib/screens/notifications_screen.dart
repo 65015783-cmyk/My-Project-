@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:provider/provider.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../config/api_config.dart';
+import '../services/notification_service.dart';
 import 'leave_detail_screen.dart';
 
 class NotificationsScreen extends StatefulWidget {
@@ -105,6 +107,12 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           print('[Notifications] Total notifications in state: ${_notifications.length}');
           _isLoading = false;
         });
+        
+        // อัปเดตจำนวนการแจ้งเตือนใน NotificationService จากข้อมูลที่โหลดมาแล้ว
+        if (mounted) {
+          final notificationService = Provider.of<NotificationService>(context, listen: false);
+          notificationService.updateCountFromList(notificationsData);
+        }
       } else {
         print('[Notifications] Error: ${response.statusCode} - ${response.body}');
         setState(() {
@@ -165,6 +173,12 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           );
         }
       });
+      
+      // อัปเดตจำนวนการแจ้งเตือนใน NotificationService
+      if (mounted) {
+        final notificationService = Provider.of<NotificationService>(context, listen: false);
+        notificationService.loadNotificationCount();
+      }
     } catch (e) {
       print('Error marking notification as read: $e');
     }

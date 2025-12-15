@@ -218,27 +218,51 @@ class _CheckInScreenState extends State<CheckInScreen> {
   }
 
   Future<void> _submitCheckIn() async {
+    print('[CheckInScreen] ========== SUBMIT CHECK-IN ==========');
+    print('[CheckInScreen] Selected date: $_selectedDate');
+    
     setState(() {
       _isSubmitting = true;
     });
 
     try {
       final attendanceService = Provider.of<AttendanceService>(context, listen: false);
+      final checkInTime = DateTime.now();
+      print('[CheckInScreen] Calling checkInWithImage with time: $checkInTime');
+      
       // เช็คอินโดยไม่บังคับให้มีรูปภาพแล้ว ใช้เวลา ณ ตอนกดยืนยัน
-      await attendanceService.checkInWithImage(
+      final success = await attendanceService.checkInWithImage(
         date: _selectedDate,
         imagePath: '',
-        checkInTime: DateTime.now(),
+        checkInTime: checkInTime,
       );
+      
+      print('[CheckInScreen] checkInWithImage returned: $success');
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('เช็คอินสำเร็จ'),
-            backgroundColor: Colors.green,
-          ),
-        );
-        Navigator.of(context).pop(true);
+        if (success) {
+          // เรียก notifyListeners() อีกครั้งเพื่อให้แน่ใจว่า UI อัปเดต
+          final attendanceService = Provider.of<AttendanceService>(context, listen: false);
+          attendanceService.notifyListeners();
+          
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('เช็คอินสำเร็จ'),
+              backgroundColor: Colors.green,
+            ),
+          );
+          
+          // รอสักครู่เพื่อให้ UI อัปเดตก่อน pop
+          await Future.delayed(const Duration(milliseconds: 100));
+          Navigator.of(context).pop(true);
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('เช็คอินล้มเหลว กรุณาลองอีกครั้ง'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
       }
     } catch (e) {
       if (mounted) {

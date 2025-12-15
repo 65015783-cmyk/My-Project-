@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'dart:io';
 import '../services/auth_service.dart';
+import '../services/attendance_service.dart';
 import '../services/language_service.dart';
 import 'edit_profile_screen.dart';
 import 'change_password_screen.dart';
@@ -152,7 +153,8 @@ class ProfileScreen extends StatelessWidget {
                 width: double.infinity,
                 child: ElevatedButton.icon(
                   onPressed: () {
-                    _showLogoutDialog(context, authService);
+                    final attendanceService = Provider.of<AttendanceService>(context, listen: false);
+                    _showLogoutDialog(context, authService, attendanceService);
                   },
                   icon: const Icon(Icons.logout, color: Colors.white),
                   label: const Text(
@@ -396,7 +398,7 @@ class ProfileScreen extends StatelessWidget {
     );
   }
 
-  void _showLogoutDialog(BuildContext context, AuthService authService) {
+  void _showLogoutDialog(BuildContext context, AuthService authService, AttendanceService? attendanceService) {
     showDialog(
       context: context,
       builder: (BuildContext context) {
@@ -419,6 +421,8 @@ class ProfileScreen extends StatelessWidget {
             ),
             ElevatedButton(
               onPressed: () {
+                // Clear attendance data เมื่อ logout
+                attendanceService?.clearAttendance();
                 authService.logout();
                 Navigator.of(context).pop();
                 Navigator.of(context).pushReplacementNamed('/login');

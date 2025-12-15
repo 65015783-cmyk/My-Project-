@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../services/auth_service.dart';
+import '../../services/attendance_service.dart';
 import 'employee_management_screen.dart';
 import 'attendance_management_screen.dart';
 import 'leave_management_screen.dart';
@@ -41,6 +42,9 @@ class AdminDashboard extends StatelessWidget {
           IconButton(
             icon: const Icon(Icons.logout, color: Colors.red),
             onPressed: () {
+              final attendanceService = Provider.of<AttendanceService>(context, listen: false);
+              // Clear attendance data เมื่อ logout
+              attendanceService.clearAttendance();
               authService.logout();
               Navigator.of(context).pushReplacementNamed('/login');
             },

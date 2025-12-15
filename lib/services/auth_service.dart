@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../models/user_model.dart';
 import '../config/api_config.dart';
+import 'attendance_service.dart';
 
 class AuthService extends ChangeNotifier {
   UserModel? _currentUser;
@@ -108,7 +109,8 @@ class AuthService extends ChangeNotifier {
   }
 
   // Set user from login response
-  Future<void> setUserFromLogin(Map<String, dynamic> loginData) async {
+  // Note: This method should be called with AttendanceService to clear old attendance data
+  Future<void> setUserFromLogin(Map<String, dynamic> loginData, {AttendanceService? attendanceService}) async {
     try {
       final prefs = await SharedPreferences.getInstance();
       
@@ -136,6 +138,9 @@ class AuthService extends ChangeNotifier {
         _currentUser = UserModel.fromJson(userData);
         notifyListeners();
       }
+
+      // Clear attendance data เมื่อ login ใหม่ (ถ้ามีการส่ง attendanceService มา)
+      attendanceService?.clearAttendance();
 
       // Fetch full profile from backend
       // This might overwrite with profile data, but role should be preserved from SharedPreferences

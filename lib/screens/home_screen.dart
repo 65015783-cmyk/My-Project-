@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'dart:io';
 import '../services/auth_service.dart';
 import '../services/attendance_service.dart';
+import '../models/attendance_model.dart';
 import '../widgets/daily_work_card.dart';
 import '../widgets/action_button.dart';
 import 'check_in_screen.dart';
@@ -11,8 +12,33 @@ import 'qr_scanner_screen.dart';
 import 'salary_screen.dart';
 import 'admin/leave_management_screen.dart';
 
-class HomeScreen extends StatelessWidget {
+class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    // ไม่โหลด attendance เมื่อเปิดหน้า
+    // จะแสดงเวลาเฉพาะเมื่อมีการ check-in/check-out แล้ว
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // ไม่ต้อง refresh attendance เมื่อกลับมาหน้าจอ
+    // จะแสดงข้อมูลเฉพาะหลังจาก check-in/check-out แล้ว
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -73,7 +99,16 @@ class HomeScreen extends StatelessWidget {
                 // Daily Work Card
                 Consumer<AttendanceService>(
                   builder: (context, service, child) {
-                    return DailyWorkCard(attendance: service.todayAttendance);
+                    final attendance = service.todayAttendance;
+                    final checkInTime = attendance?.checkInTime;
+                    final checkOutTime = attendance?.checkOutTime;
+                    print('[HomeScreen] Consumer rebuilt - checkInTime: ${attendance?.checkInTimeFormatted ?? "null"}, checkOutTime: ${attendance?.checkOutTimeFormatted ?? "null"}');
+                    
+                    // ใช้ key เพื่อ force rebuild เมื่อ checkInTime หรือ checkOutTime เปลี่ยน
+                    return DailyWorkCard(
+                      key: ValueKey('attendance_${checkInTime?.millisecondsSinceEpoch ?? "null"}_${checkOutTime?.millisecondsSinceEpoch ?? "null"}'),
+                      attendance: attendance,
+                    );
                   },
                 ),
                 const SizedBox(height: 24),
@@ -193,12 +228,18 @@ class HomeScreen extends StatelessWidget {
                     ),
                   );
                   if (result == true) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('เช็คอินสำเร็จ'),
-                        backgroundColor: Colors.green,
-                      ),
-                    );
+                    if (mounted) {
+                      // โหลดข้อมูล attendance จาก API เพื่อให้แน่ใจว่าข้อมูลตรงกับ backend
+                      final service = Provider.of<AttendanceService>(context, listen: false);
+                      await service.loadTodayAttendance();
+                      
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('เช็คอินสำเร็จ'),
+                          backgroundColor: Colors.green,
+                        ),
+                      );
+                    }
                   }
                 },
               ),
@@ -209,14 +250,28 @@ class HomeScreen extends StatelessWidget {
                 icon: Icons.logout,
                 label: 'ออกงาน',
                 color: Colors.orange,
-                onTap: () {
-                  attendanceService.checkOut();
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('เช็คเอาท์สำเร็จ'),
-                      backgroundColor: Colors.orange,
-                    ),
-                  );
+                onTap: () async {
+                  final success = await attendanceService.checkOut();
+                  if (success) {
+                    // Refresh attendance after check-out (already done in checkOut method)
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('เช็คเอาท์สำเร็จ'),
+                          backgroundColor: Colors.orange,
+                        ),
+                      );
+                    }
+                  } else {
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('เช็คเอาท์ล้มเหลว กรุณาลองอีกครั้ง'),
+                          backgroundColor: Colors.red,
+                        ),
+                      );
+                    }
+                  }
                 },
               ),
             ),

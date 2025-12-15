@@ -12,6 +12,7 @@ import 'services/attendance_service.dart';
 import 'services/leave_service.dart';
 import 'services/salary_service.dart';
 import 'services/language_service.dart';
+import 'services/notification_service.dart';
 import 'screens/splash_screen.dart';
 import 'login/login_screen.dart';
 import 'screens/admin/admin_dashboard.dart';
@@ -35,6 +36,7 @@ class MyApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => LeaveService()),
         ChangeNotifierProvider(create: (_) => SalaryService()),
         ChangeNotifierProvider(create: (_) => LanguageService()),
+        ChangeNotifierProvider(create: (_) => NotificationService()),
       ],
       child: Consumer<LanguageService>(
         builder: (context, languageService, _) {
@@ -104,6 +106,16 @@ class _MainScreenState extends State<MainScreen> {
   ];
 
   @override
+  void initState() {
+    super.initState();
+    // โหลดจำนวนการแจ้งเตือนเมื่อเข้าหน้า MainScreen (เรียกครั้งเดียว)
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final notificationService = Provider.of<NotificationService>(context, listen: false);
+      notificationService.loadNotificationCount();
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
       body: _screens[_currentIndex],
@@ -123,44 +135,96 @@ class _MainScreenState extends State<MainScreen> {
           ),
           child: ClipRRect(
             borderRadius: BorderRadius.circular(24),
-            child: NavigationBar(
-              height: 64,
-              backgroundColor: Colors.white,
-              shadowColor: Colors.transparent,
-              indicatorColor: const Color(0xFFE3F2FD),
-              selectedIndex: _currentIndex,
-              labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
-              onDestinationSelected: (index) {
-                setState(() {
-                  _currentIndex = index;
-                });
+            child: Consumer<NotificationService>(
+              builder: (context, notificationService, _) {
+                return NavigationBar(
+                  height: 64,
+                  backgroundColor: Colors.white,
+                  shadowColor: Colors.transparent,
+                  indicatorColor: const Color(0xFFE3F2FD),
+                  selectedIndex: _currentIndex,
+                  labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+                  onDestinationSelected: (index) {
+                    final previousIndex = _currentIndex;
+                    setState(() {
+                      _currentIndex = index;
+                    });
+                    // รีเฟรชจำนวนการแจ้งเตือนเมื่อเข้าหรือออกจากหน้า Notifications
+                    if (index == 2 || previousIndex == 2) {
+                      notificationService.loadNotificationCount();
+                    }
+                  },
+                  destinations: [
+                    const NavigationDestination(
+                      icon: Icon(Icons.home_outlined),
+                      selectedIcon: Icon(Icons.home),
+                      label: 'Home',
+                    ),
+                    const NavigationDestination(
+                      icon: Icon(Icons.calendar_today_outlined),
+                      selectedIcon: Icon(Icons.calendar_today),
+                      label: 'Calendar',
+                    ),
+                    NavigationDestination(
+                      icon: _buildNotificationIcon(
+                        Icons.notifications_outlined,
+                        notificationService.unreadCount,
+                        false,
+                      ),
+                      selectedIcon: _buildNotificationIcon(
+                        Icons.notifications,
+                        notificationService.unreadCount,
+                        true,
+                      ),
+                      label: 'Notifications',
+                    ),
+                    const NavigationDestination(
+                      icon: Icon(Icons.person_outline),
+                      selectedIcon: Icon(Icons.person),
+                      label: 'Profile',
+                    ),
+                  ],
+                );
               },
-              destinations: const [
-                NavigationDestination(
-                  icon: Icon(Icons.home_outlined),
-                  selectedIcon: Icon(Icons.home),
-                  label: 'Home',
-                ),
-                NavigationDestination(
-                  icon: Icon(Icons.calendar_today_outlined),
-                  selectedIcon: Icon(Icons.calendar_today),
-                  label: 'Calendar',
-                ),
-                NavigationDestination(
-                  icon: Icon(Icons.notifications_outlined),
-                  selectedIcon: Icon(Icons.notifications),
-                  label: 'Notifications',
-                ),
-                NavigationDestination(
-                  icon: Icon(Icons.person_outline),
-                  selectedIcon: Icon(Icons.person),
-                  label: 'Profile',
-                ),
-              ],
             ),
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildNotificationIcon(IconData icon, int count, bool isSelected) {
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Icon(icon),
+        if (count > 0)
+          Positioned(
+            right: -8,
+            top: -8,
+            child: Container(
+              padding: const EdgeInsets.all(4),
+              decoration: BoxDecoration(
+                color: Colors.red,
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.white, width: 2),
+              ),
+              constraints: const BoxConstraints(
+                minWidth: 18,
+                minHeight: 18,
+              ),
+              child: Text(
+                count > 99 ? '99+' : count.toString(),
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ),
+          ),
+      ],
     );
   }
 }

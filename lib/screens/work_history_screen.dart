@@ -1,13 +1,34 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
+import '../services/attendance_service.dart';
+import '../models/attendance_model.dart';
 import 'leave_history_screen.dart';
 
-class WorkHistoryScreen extends StatelessWidget {
+class WorkHistoryScreen extends StatefulWidget {
   const WorkHistoryScreen({super.key});
 
   @override
+  State<WorkHistoryScreen> createState() => _WorkHistoryScreenState();
+}
+
+class _WorkHistoryScreenState extends State<WorkHistoryScreen> {
+  late Future<void> _loadFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    // โหลดประวัติการทำงานเมื่อเปิดหน้าจอ
+    _loadFuture = Provider.of<AttendanceService>(
+      context,
+      listen: false,
+    ).loadAttendanceHistory();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final historyItems = _getMockHistory();
+    final attendanceService = Provider.of<AttendanceService>(context);
+    final historyItems = _mapAttendanceToHistoryItems(attendanceService.history);
 
     return Scaffold(
       backgroundColor: const Color(0xFFF5F5F5),
@@ -27,15 +48,27 @@ class WorkHistoryScreen extends StatelessWidget {
           ),
         ],
       ),
-      body: historyItems.isEmpty
-          ? _buildEmptyState()
-          : ListView.builder(
-              padding: const EdgeInsets.all(16),
-              itemCount: historyItems.length,
-              itemBuilder: (context, index) {
-                return _buildHistoryCard(historyItems[index]);
-              },
-            ),
+      body: FutureBuilder<void>(
+        future: _loadFuture,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting &&
+              historyItems.isEmpty) {
+            return const Center(child: CircularProgressIndicator());
+          }
+
+          if (historyItems.isEmpty) {
+            return _buildEmptyState();
+          }
+
+          return ListView.builder(
+            padding: const EdgeInsets.all(16),
+            itemCount: historyItems.length,
+            itemBuilder: (context, index) {
+              return _buildHistoryCard(historyItems[index]);
+            },
+          );
+        },
+      ),
     );
   }
 
@@ -162,30 +195,31 @@ class WorkHistoryScreen extends StatelessWidget {
     );
   }
 
-  List<HistoryItem> _getMockHistory() {
-    final now = DateTime.now();
-    return [
-      HistoryItem(
-        date: DateFormat('EEEE d MMMM yyyy', 'th').format(now),
-        checkIn: '08:30',
-        checkOut: '17:30',
-        hoursWorked: '8.5',
-        status: WorkStatus.complete,
-      ),
-      HistoryItem(
-        date: DateFormat('EEEE d MMMM yyyy', 'th').format(now.subtract(const Duration(days: 1))),
-        checkIn: '08:25',
-        checkOut: '17:45',
-        hoursWorked: '9.3',
-        status: WorkStatus.complete,
-      ),
-      HistoryItem(
-        date: DateFormat('EEEE d MMMM yyyy', 'th').format(now.subtract(const Duration(days: 2))),
-        checkIn: '08:30',
-        checkOut: '--:--',
-        status: WorkStatus.pending,
-      ),
-    ];
+  List<HistoryItem> _mapAttendanceToHistoryItems(
+    List<AttendanceModel> records,
+  ) {
+    return records.map((att) {
+      final checkIn = att.checkInTimeFormatted;
+      final checkOut = att.checkOutTimeFormatted;
+
+      String? hoursWorked;
+      if (att.checkInTime != null && att.checkOutTime != null) {
+        final diff = att.checkOutTime!.difference(att.checkInTime!).inMinutes;
+        final hours = (diff / 60);
+        hoursWorked = hours.toStringAsFixed(1);
+      }
+
+      final status =
+          att.checkOutTime != null ? WorkStatus.complete : WorkStatus.pending;
+
+      return HistoryItem(
+        date: att.dateFormatted,
+        checkIn: checkIn,
+        checkOut: checkOut,
+        hoursWorked: hoursWorked,
+        status: status,
+      );
+    }).toList();
   }
 }
 

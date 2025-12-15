@@ -39,9 +39,99 @@ router.post('/request', authenticateToken, async (req, res) => {
       [employeeId, leaveType, startDate, endDate, reason]
     );
 
+    const leaveId = result.insertId;
+
+    // สร้างการแจ้งเตือนให้ admin ทุกคนเมื่อมีการส่งคำขอลาใหม่
+    try {
+      // หาข้อมูลพนักงานที่ขอลาเพื่อใช้ใน notification
+      const [employeeInfo] = await connection.execute(
+        `SELECT CONCAT(first_name, ' ', last_name) as employee_name, department
+         FROM employees 
+         WHERE employee_id = ?`,
+        [employeeId]
+      );
+      
+      const employeeName = employeeInfo.length > 0 ? employeeInfo[0].employee_name : 'พนักงาน';
+      const employeeDept = employeeInfo.length > 0 ? employeeInfo[0].department : '';
+      
+      // หา admin ทุกคน
+      const [adminRows] = await connection.execute(
+        `SELECT user_id FROM login WHERE role = 'admin'`
+      );
+      
+      console.log(`[Leave Request] Found ${adminRows.length} admin(s) to notify`);
+      
+      // สร้างตาราง notifications ถ้ายังไม่มี
+      try {
+        await connection.execute(`
+          CREATE TABLE IF NOT EXISTS notifications (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            user_id INT NOT NULL,
+            title VARCHAR(255) NOT NULL,
+            message TEXT NOT NULL,
+            type VARCHAR(50) DEFAULT 'info',
+            leave_id INT DEFAULT NULL,
+            is_read BOOLEAN DEFAULT FALSE,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_user_id (user_id),
+            INDEX idx_is_read (is_read),
+            INDEX idx_leave_id (leave_id),
+            FOREIGN KEY (user_id) REFERENCES login(user_id) ON DELETE CASCADE,
+            FOREIGN KEY (leave_id) REFERENCES leaves(id) ON DELETE SET NULL
+          ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        `);
+        
+        // เพิ่มคอลัมน์ leave_id ถ้ายังไม่มี
+        try {
+          const [columns] = await connection.execute(`
+            SELECT COLUMN_NAME 
+            FROM INFORMATION_SCHEMA.COLUMNS 
+            WHERE TABLE_SCHEMA = DATABASE() 
+              AND TABLE_NAME = 'notifications' 
+              AND COLUMN_NAME = 'leave_id'
+          `);
+          
+          if (columns.length === 0) {
+            await connection.execute(`
+              ALTER TABLE notifications 
+              ADD COLUMN leave_id INT DEFAULT NULL,
+              ADD INDEX idx_leave_id (leave_id),
+              ADD FOREIGN KEY (leave_id) REFERENCES leaves(id) ON DELETE SET NULL
+            `);
+            console.log('[Leave Request] Added leave_id column to notifications table');
+          }
+        } catch (alterError) {
+          console.log('[Leave Request] Column leave_id may already exist:', alterError.message);
+        }
+      } catch (tableError) {
+        console.error('[Leave Request] Error creating notifications table:', tableError);
+      }
+
+      // สร้างการแจ้งเตือนให้ admin ทุกคน
+      const notificationTitle = 'คำขอลางานใหม่';
+      const notificationMessage = `${employeeName}${employeeDept ? ` (แผนก ${employeeDept})` : ''} ได้ส่งคำขอลางานรอการอนุมัติ`;
+      const notificationType = 'info';
+      
+      for (const admin of adminRows) {
+        try {
+          await connection.execute(
+            `INSERT INTO notifications (user_id, title, message, type, leave_id, is_read)
+             VALUES (?, ?, ?, ?, ?, FALSE)`,
+            [admin.user_id, notificationTitle, notificationMessage, notificationType, leaveId]
+          );
+          console.log(`[Leave Request] ✅ ส่งแจ้งเตือนสำเร็จไปยัง admin user_id ${admin.user_id}`);
+        } catch (notifError) {
+          console.error(`[Leave Request] ❌ Error creating notification for admin user_id ${admin.user_id}:`, notifError);
+        }
+      }
+    } catch (notifError) {
+      // Log error แต่ไม่ทำให้การส่งคำขอลาล้มเหลว
+      console.error('[Leave Request] Error creating notifications for admin:', notifError);
+    }
+
     res.status(201).json({
       message: 'ส่งคำขอลางานสำเร็จ',
-      leaveId: result.insertId,
+      leaveId: leaveId,
     });
   } catch (error) {
     console.error('Leave request error:', error);
@@ -104,27 +194,64 @@ router.get('/pending', authenticateToken, async (req, res) => {
     let params;
 
     if (userRole === 'admin') {
-      // Admin เห็นทั้งหมด
+      // Admin เห็นเฉพาะคำขอลาที่อนุมัติแล้วหรือปฏิเสธแล้ว (ไม่มีสิทธิ์อนุมัติ/ปฏิเสธ)
+      console.log(`[Leave Pending] Admin user_id ${userId} requesting approved/rejected leaves`);
+      // ใช้ UNION เพื่อรองรับทั้งกรณีที่ leaves.user_id เป็น employee_id หรือ login.user_id
       query = `
-        SELECT 
-          lv.id,
-          lv.user_id as employee_id,
-          lv.leave_type,
-          lv.start_date,
-          lv.end_date,
-          DATEDIFF(lv.end_date, lv.start_date) + 1 as total_days,
-          lv.reason,
-          lv.status,
-          lv.created_at,
-          CONCAT(e.first_name, ' ', e.last_name) as employee_name,
-          e.position,
-          e.department,
-          l.email as employee_email
-        FROM leaves lv
-        LEFT JOIN employees e ON lv.user_id = e.employee_id
-        LEFT JOIN login l ON e.user_id = l.user_id
-        WHERE lv.status = 'pending'
-        ORDER BY lv.created_at DESC
+        (
+          -- กรณีที่ leaves.user_id = employees.employee_id (กรณีปกติ)
+          SELECT 
+            lv.id,
+            e.employee_id,
+            lv.leave_type,
+            lv.start_date,
+            lv.end_date,
+            DATEDIFF(lv.end_date, lv.start_date) + 1 as total_days,
+            lv.reason,
+            lv.status,
+            lv.created_at,
+            lv.approved_at,
+            lv.approved_by,
+            CONCAT(e.first_name, ' ', e.last_name) as employee_name,
+            e.position,
+            e.department,
+            l.email as employee_email,
+            CONCAT(approver.first_name, ' ', approver.last_name) as approver_name
+          FROM leaves lv
+          INNER JOIN employees e ON lv.user_id = e.employee_id
+          LEFT JOIN login l ON e.user_id = l.user_id
+          LEFT JOIN employees approver ON lv.approved_by = approver.employee_id
+          WHERE lv.status IN ('approved', 'rejected')
+        )
+        UNION
+        (
+          -- กรณีที่ leaves.user_id = login.user_id (กรณีที่ต้องแปลงผ่าน login)
+          SELECT 
+            lv.id,
+            e.employee_id,
+            lv.leave_type,
+            lv.start_date,
+            lv.end_date,
+            DATEDIFF(lv.end_date, lv.start_date) + 1 as total_days,
+            lv.reason,
+            lv.status,
+            lv.created_at,
+            lv.approved_at,
+            lv.approved_by,
+            CONCAT(e.first_name, ' ', e.last_name) as employee_name,
+            e.position,
+            e.department,
+            l.email as employee_email,
+            CONCAT(approver.first_name, ' ', approver.last_name) as approver_name
+          FROM leaves lv
+          INNER JOIN login l_login ON lv.user_id = l_login.user_id
+          INNER JOIN employees e ON l_login.user_id = e.user_id
+          LEFT JOIN login l ON e.user_id = l.user_id
+          LEFT JOIN employees approver ON lv.approved_by = approver.employee_id
+          WHERE lv.status IN ('approved', 'rejected')
+            AND lv.user_id NOT IN (SELECT employee_id FROM employees)
+        )
+        ORDER BY COALESCE(approved_at, created_at) DESC, created_at DESC
       `;
       params = [];
     } else if (userRole === 'manager') {
@@ -209,7 +336,18 @@ router.get('/pending', authenticateToken, async (req, res) => {
     const [leaves] = await connection.execute(query, params);
 
     // Debug logging
-    if (userRole === 'manager') {
+    if (userRole === 'admin') {
+      console.log(`[Leave Pending] Admin user_id ${userId} found ${leaves.length} approved/rejected leaves`);
+      if (leaves.length > 0) {
+        console.log(`[Leave Pending] Sample leave statuses:`, leaves.slice(0, 3).map(l => ({ id: l.id, status: l.status, approved_at: l.approved_at })));
+      } else {
+        // ตรวจสอบว่ามี leaves ที่ approved/rejected อยู่หรือไม่
+        const [allProcessed] = await connection.execute(
+          `SELECT COUNT(*) as count FROM leaves WHERE status IN ('approved', 'rejected')`
+        );
+        console.log(`[Leave Pending] Total approved/rejected leaves in database: ${allProcessed[0]?.count || 0}`);
+      }
+    } else if (userRole === 'manager') {
       console.log(`[Leave Pending] Manager user_id ${userId} พบ ${leaves.length} รายการการลารออนุมัติ`);
       if (leaves.length === 0) {
         // ตรวจสอบว่ามีการลาที่ pending อยู่หรือไม่ (ไม่กรองตามแผนก)
@@ -466,6 +604,122 @@ router.patch('/:leaveId/status', authenticateToken, async (req, res) => {
     });
   } catch (error) {
     console.error('Update leave status error:', error);
+    res.status(500).json({ message: 'เกิดข้อผิดพลาด' });
+  } finally {
+    if (connection) connection.release();
+  }
+});
+
+// Get employee's own leave summary
+router.get('/my-summary', authenticateToken, async (req, res) => {
+  let connection;
+  try {
+    const loginUserId = req.user.user_id;
+    const currentYear = req.query.year ? parseInt(req.query.year) : new Date().getFullYear();
+
+    connection = await pool.getConnection();
+
+    // หา employee_id จาก login.user_id
+    const [employeeRows] = await connection.execute(
+      `SELECT employee_id 
+       FROM employees 
+       WHERE user_id = ?`,
+      [loginUserId]
+    );
+
+    if (employeeRows.length === 0) {
+      return res.status(404).json({ 
+        message: 'ไม่พบข้อมูลพนักงาน' 
+      });
+    }
+
+    const employeeId = employeeRows[0].employee_id;
+
+    // คำนวณข้อมูลสรุปการลา
+    const [summary] = await connection.execute(
+      `SELECT 
+        -- นับจำนวนวันลาที่อนุมัติแล้วทั้งหมด (ไม่จำกัดปี)
+        COALESCE(SUM(CASE WHEN status = 'approved' THEN 
+          DATEDIFF(end_date, start_date) + 1 
+        ELSE 0 END), 0) as total_leave_days,
+        -- นับจำนวนวันลาป่วยทั้งหมด (ไม่จำกัดปี)
+        COALESCE(SUM(CASE WHEN status = 'approved' AND leave_type = 'sick' THEN 
+          DATEDIFF(end_date, start_date) + 1 
+        ELSE 0 END), 0) as sick_leave_days,
+        -- นับจำนวนวันลากิจส่วนตัวทั้งหมด (ไม่จำกัดปี)
+        COALESCE(SUM(CASE WHEN status = 'approved' AND leave_type = 'personal' THEN 
+          DATEDIFF(end_date, start_date) + 1 
+        ELSE 0 END), 0) as personal_leave_days,
+        -- นับจำนวนวันลาที่รออนุมัติ
+        COALESCE(SUM(CASE WHEN status = 'pending' THEN 
+          DATEDIFF(end_date, start_date) + 1 
+        ELSE 0 END), 0) as pending_leave_days,
+        -- วันลาที่ลาไปในปีปัจจุบัน
+        COALESCE(SUM(CASE WHEN status = 'approved' AND YEAR(start_date) = ? THEN 
+          DATEDIFF(end_date, start_date) + 1 
+        ELSE 0 END), 0) as current_year_leave_days,
+        -- จำนวนวันลาที่เหลือ (30 วันต่อปี - วันลาที่ลาไปในปีปัจจุบัน)
+        GREATEST(0, 30 - COALESCE(SUM(CASE WHEN status = 'approved' AND YEAR(start_date) = ? THEN 
+          DATEDIFF(end_date, start_date) + 1 
+        ELSE 0 END), 0)) as remaining_leave_days
+      FROM leaves
+      WHERE user_id = ?`,
+      [currentYear, currentYear, employeeId]
+    );
+
+    // ดึงข้อมูล attendance สำหรับคำนวณวันทำงานและมาทำงาน
+    // ตรวจสอบว่าตาราง attendance มีอยู่หรือไม่
+    let totalWorkDays = 0;
+    let daysWorked = 0;
+    
+    try {
+      const now = new Date();
+      const yearStart = `${now.getFullYear()}-01-01`;
+      const yearEnd = `${now.getFullYear()}-12-31`;
+      
+      const [attendanceSummary] = await connection.execute(
+        `SELECT 
+          COUNT(DISTINCT date) as total_work_days,
+          COUNT(DISTINCT CASE WHEN check_in_time IS NOT NULL THEN date END) as days_worked
+        FROM attendance
+        WHERE user_id = ? 
+          AND date >= ? 
+          AND date <= ?`,
+        [loginUserId, yearStart, yearEnd]
+      );
+
+      totalWorkDays = attendanceSummary[0]?.total_work_days || 0;
+      daysWorked = attendanceSummary[0]?.days_worked || 0;
+    } catch (attendanceError) {
+      console.log('[Leave My Summary] Attendance table may not exist or no data:', attendanceError.message);
+      // ถ้าไม่มีตาราง attendance หรือไม่มีข้อมูล ให้ใช้ค่า default
+      totalWorkDays = 0;
+      daysWorked = 0;
+    }
+
+    const leaveDays = summary[0]?.current_year_leave_days || 0;
+    
+    console.log(`[Leave My Summary] Employee ${employeeId}: Leave days=${leaveDays}, Total work days=${totalWorkDays}, Days worked=${daysWorked}`);
+
+    res.json({
+      success: true,
+      year: currentYear,
+      leave_summary: {
+        total_leave_days: summary[0]?.total_leave_days || 0,
+        sick_leave_days: summary[0]?.sick_leave_days || 0,
+        personal_leave_days: summary[0]?.personal_leave_days || 0,
+        pending_leave_days: summary[0]?.pending_leave_days || 0,
+        current_year_leave_days: summary[0]?.current_year_leave_days || 0,
+        remaining_leave_days: summary[0]?.remaining_leave_days || 30,
+      },
+      attendance_summary: {
+        total_work_days: totalWorkDays,
+        days_worked: daysWorked,
+        leave_days: leaveDays,
+      }
+    });
+  } catch (error) {
+    console.error('Get leave summary error:', error);
     res.status(500).json({ message: 'เกิดข้อผิดพลาด' });
   } finally {
     if (connection) connection.release();

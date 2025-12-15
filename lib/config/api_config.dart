@@ -17,10 +17,13 @@ class ApiConfig {
   static String get registerUrl => '$baseUrl/api/register';
   static String get checkInUrl => '$baseUrl/api/attendance/checkin';
   static String get checkOutUrl => '$baseUrl/api/attendance/checkout';
+  static String get attendanceTodayUrl => '$baseUrl/api/attendance/today';
+  static String get attendanceAllUrl => '$baseUrl/api/attendance/all';
   static String get leaveRequestUrl => '$baseUrl/api/leave/request';
   static String get leaveHistoryUrl => '$baseUrl/api/leave/history';
   static String get leavePendingUrl => '$baseUrl/api/leave/pending';
   static String get leaveStatusUrl => '$baseUrl/api/leave';
+  static String get leaveMySummaryUrl => '$baseUrl/api/leave/my-summary';
   static String get profileUrl => '$baseUrl/api/profile';
   static String get leaveSummaryUrl => '$baseUrl/api/admin/leave-summary';
   static String get leaveDetailsUrl => '$baseUrl/api/admin/leave-details';
