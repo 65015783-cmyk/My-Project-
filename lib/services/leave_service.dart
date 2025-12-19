@@ -14,6 +14,7 @@ class LeaveService extends ChangeNotifier {
 
   LeaveService() {
     _loadLeaveHistory();
+    _loadLeaveBalance();
   }
 
   // โหลดประวัติการลาจาก backend
@@ -73,6 +74,57 @@ class LeaveService extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// โหลดยอดวันลาคงเหลือจาก backend (ข้อมูลปัจจุบัน)
+  Future<void> _loadLeaveBalance() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('auth_token');
+
+      if (token == null) {
+        _leaveBalance = LeaveBalance.defaultBalance();
+        notifyListeners();
+        return;
+      }
+
+      final currentYear = DateTime.now().year;
+      final response = await http.get(
+        Uri.parse('${ApiConfig.leaveMySummaryUrl}?year=$currentYear'),
+        headers: ApiConfig.headersWithAuth(token),
+      );
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body) as Map<String, dynamic>;
+
+        // สมมติ backend ส่ง key: totalLeave, sickUsed, personalUsed, remaining
+        final int total = (data['totalLeave'] as num?)?.toInt() ?? 0;
+        final int sickUsed = (data['sickUsed'] as num?)?.toInt() ?? 0;
+        final int personalUsed = (data['personalUsed'] as num?)?.toInt() ?? 0;
+        final int remaining = (data['remaining'] as num?)?.toInt() ?? 0;
+
+        // แปลงเป็น LeaveBalance: เหลือป่วย/ลากิจ และรวม
+        final sickRemaining = (data['sickRemaining'] as num?)?.toInt() ??
+            (total - sickUsed);
+        final personalRemaining =
+            (data['personalRemaining'] as num?)?.toInt() ??
+                (remaining - sickRemaining);
+
+        _leaveBalance = LeaveBalance(
+          sickLeaveRemaining: sickRemaining,
+          personalLeaveRemaining: personalRemaining,
+        );
+        notifyListeners();
+      } else {
+        // ถ้า API พัง ใช้ค่าที่มีอยู่ (หรือ default)
+        _leaveBalance = _leaveBalance;
+        notifyListeners();
+      }
+    } catch (e) {
+      print('Error loading leave balance: $e');
+      // ไม่ reset ค่าเดิม เผื่อ UI ยังใช้ได้
+      notifyListeners();
+    }
+  }
+
   // ส่งคำขอลาไปยัง backend API
   Future<void> submitLeaveRequest({
     required LeaveType type,
@@ -98,8 +150,12 @@ class LeaveService extends ChangeNotifier {
         case LeaveType.personalLeave:
           leaveType = 'personal';
           break;
-        default:
-          leaveType = 'personal'; // default to personal
+        case LeaveType.earlyLeave:
+          leaveType = 'early';
+          break;
+        case LeaveType.halfDayLeave:
+          leaveType = 'half_day';
+          break;
       }
 
       // ส่งคำขอลาไปยัง backend
@@ -134,17 +190,25 @@ class LeaveService extends ChangeNotifier {
 
         _leaveRequests.insert(0, newRequest);
         
-        // Update leave balance
-        if (type == LeaveType.sickLeave) {
-          _leaveBalance = LeaveBalance(
-            sickLeaveRemaining: _leaveBalance.sickLeaveRemaining - totalDays,
-            personalLeaveRemaining: _leaveBalance.personalLeaveRemaining,
-          );
-        } else {
-          _leaveBalance = LeaveBalance(
-            sickLeaveRemaining: _leaveBalance.sickLeaveRemaining,
-            personalLeaveRemaining: _leaveBalance.personalLeaveRemaining - totalDays,
-          );
+        // Update leave balance (หักเฉพาะวันลาป่วยและลากิจเต็มวัน)
+        switch (type) {
+          case LeaveType.sickLeave:
+            _leaveBalance = LeaveBalance(
+              sickLeaveRemaining: _leaveBalance.sickLeaveRemaining - totalDays,
+              personalLeaveRemaining: _leaveBalance.personalLeaveRemaining,
+            );
+            break;
+          case LeaveType.personalLeave:
+            _leaveBalance = LeaveBalance(
+              sickLeaveRemaining: _leaveBalance.sickLeaveRemaining,
+              personalLeaveRemaining:
+                  _leaveBalance.personalLeaveRemaining - totalDays,
+            );
+            break;
+          case LeaveType.earlyLeave:
+          case LeaveType.halfDayLeave:
+            // ไม่ปรับยอดวันลาคงเหลือ สำหรับลากลับก่อน/ลาครึ่งวัน
+            break;
         }
 
         notifyListeners();
@@ -165,6 +229,10 @@ class LeaveService extends ChangeNotifier {
         return LeaveType.sickLeave;
       case 'personal':
         return LeaveType.personalLeave;
+      case 'early':
+        return LeaveType.earlyLeave;
+      case 'half_day':
+        return LeaveType.halfDayLeave;
       case 'vacation':
         return LeaveType.personalLeave; // map vacation to personalLeave
       default:

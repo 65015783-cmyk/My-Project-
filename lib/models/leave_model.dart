@@ -3,7 +3,9 @@ import 'package:flutter/material.dart';
 
 enum LeaveType {
   sickLeave('ลาป่วย', 'Sick Leave'),
-  personalLeave('ลากิจส่วนตัว', 'Personal Leave');
+  personalLeave('ลากิจส่วนตัว', 'Personal Leave'),
+  earlyLeave('ลากลับก่อน', 'Early Leave'),
+  halfDayLeave('ลาครึ่งวัน', 'Half Day Leave');
 
   final String thaiLabel;
   final String englishLabel;

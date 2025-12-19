@@ -32,8 +32,11 @@ class _QRCheckInFormScreenState extends State<QRCheckInFormScreen> {
     // Pre-fill data from QR Code if available
     // This QR Code belongs to the person who needs to check in
     if (widget.qrData != null) {
-      _nameController.text = widget.qrData!['userName'] ?? '';
-      _employeeIdController.text = widget.qrData!['userId'] ?? '';
+      final data = widget.qrData!;
+      _nameController.text =
+          (data['userName'] ?? data['n'] ?? '').toString();
+      _employeeIdController.text =
+          (data['userId'] ?? data['u'] ?? '').toString();
       // Department should be filled by the person scanning (who knows the department)
     }
   }

@@ -35,7 +35,7 @@ router.post('/', authenticateToken, async (req, res) => {
       return res.status(403).json({ message: 'คุณไม่มีสิทธิ์เข้าถึง' });
     }
 
-    const { username, email, password, role } = req.body;
+    const { username, email, password, role, first_name, last_name, department } = req.body;
 
     if (!username || !email || !password) {
       return res.status(400).json({ message: 'กรุณากรอกข้อมูลให้ครบถ้วน' });
@@ -67,15 +67,25 @@ router.post('/', authenticateToken, async (req, res) => {
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
 
-    // Insert
+    // Insert into login table
     const [result] = await connection.execute(
       'INSERT INTO login (username, email, password_hash, role) VALUES (?, ?, ?, ?)',
       [username, email, hashedPassword, selectedRole]
     );
 
+    const userId = result.insertId;
+
+    // สร้างข้อมูลในตาราง employees พร้อมชื่อ-นามสกุล
+    // หมายเหตุ: department จะไม่ถูกกำหนดอัตโนมัติ (ให้เป็น null หรือค่าที่ส่งมา)
+    await connection.execute(
+      `INSERT INTO employees (user_id, first_name, last_name, position, department) 
+       VALUES (?, ?, ?, ?, ?)`,
+      [userId, first_name || '', last_name || '', null, department || null]
+    );
+
     res.status(201).json({
       message: 'เพิ่มพนักงานสำเร็จ',
-      employeeId: result.insertId,
+      employeeId: userId,
     });
   } catch (error) {
     console.error('Create employee error:', error);

@@ -1,0 +1,57 @@
+-- ===========================
+-- ตั้งค่า manee เป็น Manager แผนก Marketing
+-- ===========================
+USE humans;
+
+-- ขั้นตอนที่ 1: ตรวจสอบข้อมูลปัจจุบัน
+SELECT '=== ข้อมูล manee ก่อนอัพเดท ===' as '';
+SELECT 
+  l.user_id,
+  l.username,
+  l.email,
+  l.role,
+  e.employee_id,
+  CONCAT(e.first_name, ' ', COALESCE(e.last_name, '')) as employee_name,
+  e.position,
+  e.department as current_department,
+  COALESCE(e.is_manager, 0) as is_manager
+FROM login l
+LEFT JOIN employees e ON l.user_id = e.user_id
+WHERE l.username = 'manee';
+
+-- ขั้นตอนที่ 2: ตั้ง role ใน login table
+UPDATE login
+SET role = 'manager'
+WHERE username = 'manee';
+
+-- ขั้นตอนที่ 3: ตั้ง is_manager และ department ใน employees table
+UPDATE employees e
+INNER JOIN login l ON e.user_id = l.user_id
+SET 
+  e.department = 'Marketing',
+  e.is_manager = 1,
+  e.position = COALESCE(e.position, 'Manager')
+WHERE l.username = 'manee';
+
+-- ขั้นตอนที่ 4: ตรวจสอบผลลัพธ์
+SELECT '=== ผลลัพธ์หลังอัพเดท ===' as '';
+SELECT 
+  l.user_id,
+  l.username,
+  l.email,
+  l.role,
+  e.employee_id,
+  CONCAT(e.first_name, ' ', COALESCE(e.last_name, '')) as employee_name,
+  e.position,
+  e.department,
+  e.is_manager,
+  CASE 
+    WHEN l.role = 'manager' AND e.is_manager = 1 AND e.department = 'Marketing' 
+    THEN '✅ ตั้งค่าเรียบร้อยแล้ว'
+    ELSE '❌ ยังไม่ครบถ้วน'
+  END as status
+FROM login l
+LEFT JOIN employees e ON l.user_id = e.user_id
+WHERE l.username = 'manee';
+
+

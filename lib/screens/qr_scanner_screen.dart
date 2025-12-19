@@ -53,11 +53,21 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
     try {
       // Try to parse as JSON
       final Map<String, dynamic> qrData = jsonDecode(rawValue);
-      
+
+      // รองรับทั้งรูปแบบเดิม และรูปแบบคีย์แบบย่อ (t/u/n/d)
+      final String? typeLong = qrData['type'] as String?;
+      final String? typeShort = qrData['t'] as String?; // ci = check-in
+      final String? screen = qrData['screen'] as String?;
+
+      final bool isCheckInQr = (typeLong == 'check_in_form') ||
+          (screen == 'qr_check_in_form') ||
+          (typeShort == 'ci');
+
       // Check if it's a check-in form QR code
-      if (qrData['type'] == 'check_in_form' || qrData['screen'] == 'qr_check_in_form') {
+      if (isCheckInQr) {
         // Verify QR Code date matches today
-        final qrDateString = qrData['date'] as String?;
+        final qrDateString =
+            (qrData['date'] ?? qrData['d']) as String?; // รองรับทั้ง date/d
         if (qrDateString != null) {
           final today = DateTime.now();
           final todayString = '${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
@@ -71,8 +81,8 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
           }
         }
         
-        // Add check-in timestamp when QR is scanned
-        qrData['checkInTimestamp'] = DateTime.now().toIso8601String();
+        // เติม check-in timestamp ตอนสแกน (ใช้ key เดิมเพื่อความเข้ากันได้)
+        qrData['checkInTimestamp'] ??= DateTime.now().toIso8601String();
         
         // Navigate to check-in form with timestamp
         Navigator.of(context).pushReplacement(
@@ -112,7 +122,8 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
     try {
       final XFile? image = await _imagePicker.pickImage(
         source: ImageSource.gallery,
-        imageQuality: 90,
+        // ใช้ไฟล์ต้นฉบับเต็ม ๆ ไม่บีบอัด เพื่อให้ ML Kit อ่าน QR ได้แม่นขึ้น
+        // imageQuality: 90,
       );
 
       if (image != null) {
@@ -120,31 +131,45 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
           _isProcessing = true;
         });
 
-        // Scan QR code from the selected image using Google ML Kit
         final file = File(image.path);
         if (await file.exists()) {
           try {
             final inputImage = mlkit.InputImage.fromFilePath(file.path);
-            final barcodeScanner = mlkit.BarcodeScanner(formats: [mlkit.BarcodeFormat.qrCode]);
-            
-            final List<mlkit.Barcode> barcodes = await barcodeScanner.processImage(inputImage);
-            
+
+            // ลองสแกนรอบที่ 1: แบบทั่วไป (ทุกประเภท barcode)
+            final defaultScanner = mlkit.BarcodeScanner();
+            List<mlkit.Barcode> barcodes =
+                await defaultScanner.processImage(inputImage);
+            debugPrint(
+                'MLKit (default) from gallery found ${barcodes.length} barcodes');
+
+            // ถ้าไม่เจอเลย ลองโหมดเน้น QR โดยเฉพาะอีกรอบ
+            if (barcodes.isEmpty) {
+              await defaultScanner.close();
+              final qrOnlyScanner = mlkit.BarcodeScanner(
+                formats: [mlkit.BarcodeFormat.qrCode],
+              );
+              barcodes = await qrOnlyScanner.processImage(inputImage);
+              debugPrint(
+                  'MLKit (QR only) from gallery found ${barcodes.length} barcodes');
+              await qrOnlyScanner.close();
+            } else {
+              await defaultScanner.close();
+            }
+
             if (barcodes.isNotEmpty) {
               final barcode = barcodes.first;
-              if (barcode.displayValue != null && barcode.displayValue!.isNotEmpty) {
-                await barcodeScanner.close();
-                _processQRCode(barcode.displayValue!);
-                return;
-              } else if (barcode.rawValue != null && barcode.rawValue!.isNotEmpty) {
-                await barcodeScanner.close();
-                _processQRCode(barcode.rawValue!);
+              final value = (barcode.displayValue?.isNotEmpty ?? false)
+                  ? barcode.displayValue!
+                  : (barcode.rawValue ?? '');
+
+              if (value.isNotEmpty) {
+                _processQRCode(value);
                 return;
               }
             }
-            
-            await barcodeScanner.close();
           } catch (e) {
-            debugPrint('Error scanning QR code from image: $e');
+            debugPrint('Error scanning QR code from image with ML Kit: $e');
           }
         }
 
@@ -152,7 +177,9 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
           _isProcessing = false;
         });
         if (mounted) {
-          _showError('ไม่พบ QR Code ในรูปภาพ กรุณาเลือกรูปที่มี QR Code');
+          // ปรับข้อความให้แนะนำวิธีแก้ให้ผู้ใช้ด้วย
+          _showError(
+              'ไม่พบ QR Code ในรูปภาพ\nกรุณาใช้รูปที่เห็น QR ชัด ๆ หรือครอปให้เหลือเฉพาะ QR Code');
         }
       }
     } catch (e) {

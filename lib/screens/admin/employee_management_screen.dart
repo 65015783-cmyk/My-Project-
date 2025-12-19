@@ -125,6 +125,8 @@ class _EmployeeManagementScreenState extends State<EmployeeManagementScreen> {
   void _showEmployeeDialog({Map<String, dynamic>? employee}) {
     final isEdit = employee != null;
     final usernameController = TextEditingController(text: employee?['username'] ?? '');
+    final firstNameController = TextEditingController(text: employee?['first_name'] ?? '');
+    final lastNameController = TextEditingController(text: employee?['last_name'] ?? '');
     final emailController = TextEditingController(text: employee?['email'] ?? '');
     final passwordController = TextEditingController();
     String selectedRole = employee?['role'] ?? 'employee';
@@ -138,22 +140,41 @@ class _EmployeeManagementScreenState extends State<EmployeeManagementScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                TextField(
-                  controller: usernameController,
-                  decoration: const InputDecoration(
-                    labelText: 'Username',
-                    border: OutlineInputBorder(),
-                  ),
+              // First name
+              TextField(
+                controller: firstNameController,
+                decoration: const InputDecoration(
+                  labelText: 'ชื่อ (First name)',
+                  border: OutlineInputBorder(),
                 ),
-                const SizedBox(height: 16),
-                TextField(
-                  controller: emailController,
-                  decoration: const InputDecoration(
-                    labelText: 'Email',
-                    border: OutlineInputBorder(),
-                  ),
+              ),
+              const SizedBox(height: 16),
+              // Last name
+              TextField(
+                controller: lastNameController,
+                decoration: const InputDecoration(
+                  labelText: 'นามสกุล (Last name)',
+                  border: OutlineInputBorder(),
                 ),
-                const SizedBox(height: 16),
+              ),
+              const SizedBox(height: 16),
+              // Username (สำหรับใช้ login)
+              TextField(
+                controller: usernameController,
+                decoration: const InputDecoration(
+                  labelText: 'Username (สำหรับเข้าสู่ระบบ)',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: emailController,
+                decoration: const InputDecoration(
+                  labelText: 'Email',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 16),
                 TextField(
                   controller: passwordController,
                   obscureText: true,
@@ -190,7 +211,9 @@ class _EmployeeManagementScreenState extends State<EmployeeManagementScreen> {
             ),
             ElevatedButton(
               onPressed: () async {
-                if (usernameController.text.isEmpty || 
+                if (firstNameController.text.isEmpty ||
+                    lastNameController.text.isEmpty ||
+                    usernameController.text.isEmpty || 
                     emailController.text.isEmpty ||
                     (!isEdit && passwordController.text.isEmpty)) {
                   ScaffoldMessenger.of(context).showSnackBar(
@@ -211,6 +234,8 @@ class _EmployeeManagementScreenState extends State<EmployeeManagementScreen> {
                     emailController.text,
                     passwordController.text.isEmpty ? null : passwordController.text,
                     selectedRole,
+                    firstNameController.text,
+                    lastNameController.text,
                   );
                 } else {
                   await _createEmployee(
@@ -218,6 +243,8 @@ class _EmployeeManagementScreenState extends State<EmployeeManagementScreen> {
                     emailController.text,
                     passwordController.text,
                     selectedRole,
+                    firstNameController.text,
+                    lastNameController.text,
                   );
                 }
               },
@@ -229,7 +256,13 @@ class _EmployeeManagementScreenState extends State<EmployeeManagementScreen> {
     );
   }
 
-  Future<void> _createEmployee(String username, String email, String password, String role) async {
+  Future<void> _createEmployee(
+      String username,
+      String email,
+      String password,
+      String role,
+      String firstName,
+      String lastName) async {
     try {
       final headers = await _getAuthHeaders();
       final response = await http.post(
@@ -240,6 +273,8 @@ class _EmployeeManagementScreenState extends State<EmployeeManagementScreen> {
           'email': email,
           'password': password,
           'role': role,
+          'first_name': firstName,
+          'last_name': lastName,
         }),
       );
 
@@ -301,12 +336,21 @@ class _EmployeeManagementScreenState extends State<EmployeeManagementScreen> {
     }
   }
 
-  Future<void> _updateEmployee(int userId, String username, String email, String? password, String role) async {
+  Future<void> _updateEmployee(
+      int userId,
+      String username,
+      String email,
+      String? password,
+      String role,
+      String firstName,
+      String lastName) async {
     try {
       final body = {
         'username': username,
         'email': email,
         'role': role,
+        'first_name': firstName,
+        'last_name': lastName,
       };
       if (password != null && password.isNotEmpty) {
         body['password'] = password;

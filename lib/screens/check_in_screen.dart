@@ -38,12 +38,20 @@ class _CheckInScreenState extends State<CheckInScreen> {
       if (user != null) {
         // Generate QR Code that changes daily based on selected date
         final dateString = _selectedDate.toIso8601String().split('T')[0]; // YYYY-MM-DD
+
+        // ใช้โครงสร้างข้อมูลแบบย่อให้ QR ไม่แน่นเกินไป
+        // รองรับฝั่งสแกนทั้งคีย์แบบย่อ (u, n, d, t) และแบบเดิม (userId, userName, date, type)
         final checkInData = {
+          'ver': 1, // version สำหรับเผื่อเปลี่ยนรูปแบบในอนาคต
+          't': 'ci', // ci = check-in
+          'u': user.id, // userId แบบย่อ
+          'n': user.fullName, // name แบบย่อ
+          'd': dateString, // date แบบย่อ
+
+          // คีย์แบบเดิม เผื่อความเข้ากันได้ย้อนหลัง (กล้องสแกนยังอ่านได้เหมือนเดิม)
           'userId': user.id,
-          'userEmail': user.email,
           'userName': user.fullName,
-          'date': dateString, // Only date, no time - ensures same QR for same day
-          'timestamp': DateTime.now().toIso8601String(),
+          'date': dateString,
           'type': 'check_in_form',
           'screen': 'qr_check_in_form',
         };

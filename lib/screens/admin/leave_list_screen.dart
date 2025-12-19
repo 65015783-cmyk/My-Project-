@@ -138,7 +138,8 @@ class _LeaveListScreenState extends State<LeaveListScreen> {
   String _formatDateTime(String? dateTimeStr) {
     if (dateTimeStr == null || dateTimeStr.isEmpty) return '-';
     try {
-      final dateTime = DateTime.parse(dateTimeStr);
+      // ใช้เวลาท้องถิ่นเพื่อให้ตรงกับเวลาที่กดยื่นคำขอจริง
+      final dateTime = DateTime.parse(dateTimeStr).toLocal();
       return DateFormat('dd MMM yyyy HH:mm', 'th').format(dateTime);
     } catch (e) {
       return dateTimeStr;

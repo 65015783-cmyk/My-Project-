@@ -285,6 +285,26 @@ class _RequestLeaveScreenState extends State<RequestLeaveScreen> {
       return;
     }
 
+    // จำกัดสิทธิ์ "ลากลับก่อน" ไม่เกิน 10 ครั้งต่อปี (นับเฉพาะใบที่ไม่ถูกปฏิเสธ)
+    if (_selectedLeaveType == LeaveType.earlyLeave) {
+      final leaveService = Provider.of<LeaveService>(context, listen: false);
+      final currentYear = DateTime.now().year;
+      final usedEarlyLeave = leaveService.leaveRequests.where((leave) =>
+          leave.type == LeaveType.earlyLeave &&
+          leave.startDate.year == currentYear &&
+          leave.status != LeaveStatus.rejected).length;
+
+      if (usedEarlyLeave >= 10) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('คุณใช้สิทธิ์ลากลับก่อนครบ 10 ครั้งแล้วในปีนี้'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+    }
+
     setState(() {
       _isSubmitting = true;
     });
@@ -419,6 +439,26 @@ class _RequestLeaveScreenState extends State<RequestLeaveScreen> {
                       LeaveType.personalLeave,
                       Colors.blue,
                       Icons.person,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: _buildLeaveTypeCard(
+                      LeaveType.earlyLeave,
+                      Colors.orange,
+                      Icons.logout,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _buildLeaveTypeCard(
+                      LeaveType.halfDayLeave,
+                      Colors.purple,
+                      Icons.timelapse,
                     ),
                   ),
                 ],
@@ -563,7 +603,11 @@ class _RequestLeaveScreenState extends State<RequestLeaveScreen> {
                         child: Text(
                           _selectedLeaveType == LeaveType.sickLeave
                               ? 'ลาป่วย: ต้องแนบใบรับรองแพทย์ (ถ้าลามากกว่า 3 วัน)'
-                              : 'ลากิจส่วนตัว: สามารถแนบเอกสารประกอบได้ (ถ้ามี)',
+                              : _selectedLeaveType == LeaveType.personalLeave
+                                  ? 'ลากิจส่วนตัว: สามารถแนบเอกสารประกอบได้ (ถ้ามี)'
+                                  : _selectedLeaveType == LeaveType.earlyLeave
+                                      ? 'ลากลับก่อน: จำกัดสิทธิ์ไม่เกิน 10 ครั้งต่อปี'
+                                      : 'ลาครึ่งวัน: ใช้สำหรับการลาเป็นช่วงเวลาสั้น ๆ ในวันทำงาน',
                           style: const TextStyle(
                             fontSize: 12,
                             color: Colors.blue,

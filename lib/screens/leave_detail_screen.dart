@@ -109,6 +109,10 @@ class _LeaveDetailScreenState extends State<LeaveDetailScreen> {
         return LeaveType.sickLeave;
       case 'personal':
         return LeaveType.personalLeave;
+      case 'early':
+        return LeaveType.earlyLeave;
+      case 'half_day':
+        return LeaveType.halfDayLeave;
       default:
         return LeaveType.personalLeave;
     }
@@ -197,11 +201,14 @@ class _LeaveDetailScreenState extends State<LeaveDetailScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Header with Type and Status
+            // Header with Type (left) and Result text (right – align labels)
             Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
+                // ซ้าย: ประเภทการลา
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 16, vertical: 8),
                   decoration: BoxDecoration(
                     color: leaveType == LeaveType.sickLeave
                         ? Colors.red.withValues(alpha: 0.1)
@@ -219,19 +226,36 @@ class _LeaveDetailScreenState extends State<LeaveDetailScreen> {
                     ),
                   ),
                 ),
+                
+                // ดันข้อความไปขวา
                 const Spacer(),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: status.color.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Text(
-                    status.label,
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.bold,
-                      color: status.color,
+
+                // ขวา: ผลคำร้อง + สถานะ (ให้อยู่บรรทัดเดียวกันระดับเดียวกับประเภทการลา)
+                Expanded(
+                  flex: 0,
+                  child: Align(
+                    alignment: Alignment.centerRight,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        Text(
+                          'ผลคำร้อง',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey[600],
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          status.label,
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: status.color,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ),
@@ -268,7 +292,8 @@ class _LeaveDetailScreenState extends State<LeaveDetailScreen> {
               _buildDetailRow(
                 Icons.access_time,
                 'วันที่ส่งคำขอ',
-                DateFormat('d MMMM yyyy HH:mm', 'th').format(createdAt.toLocal()),
+                DateFormat('d MMMM yyyy HH:mm', 'th')
+                    .format(createdAt.toLocal()),
               ),
             if (createdAt != null) const SizedBox(height: 16),
 
@@ -277,12 +302,14 @@ class _LeaveDetailScreenState extends State<LeaveDetailScreen> {
               _buildDetailRow(
                 Icons.check_circle,
                 'วันที่อนุมัติ/ปฏิเสธ',
-                DateFormat('d MMMM yyyy HH:mm', 'th').format(approvedAt.toLocal()),
+                DateFormat('d MMMM yyyy HH:mm', 'th')
+                    .format(approvedAt.toLocal()),
               ),
             if (approvedAt != null) const SizedBox(height: 16),
 
             // Rejection Reason (if rejected)
-            if (status == LeaveStatus.rejected && _leaveData!['rejection_reason'] != null) ...[
+            if (status == LeaveStatus.rejected &&
+                _leaveData!['rejection_reason'] != null) ...[
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
@@ -294,7 +321,8 @@ class _LeaveDetailScreenState extends State<LeaveDetailScreen> {
                   children: [
                     Row(
                       children: [
-                        const Icon(Icons.info_outline, color: Colors.red, size: 20),
+                        const Icon(Icons.info_outline,
+                            color: Colors.red, size: 20),
                         const SizedBox(width: 8),
                         const Text(
                           'เหตุผลที่ไม่อนุมัติ:',

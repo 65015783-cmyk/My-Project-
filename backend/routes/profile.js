@@ -14,6 +14,7 @@ router.get('/', authenticateToken, async (req, res) => {
     const [users] = await connection.execute(
       `SELECT e.employee_id as id, e.user_id, e.first_name, e.last_name, e.phone_number, 
               e.date_of_birth, e.position, e.department,
+              COALESCE(e.is_manager, 0) as is_manager,
               l.email, l.role
        FROM employees e
        LEFT JOIN login l ON e.user_id = l.user_id
@@ -26,11 +27,11 @@ router.get('/', authenticateToken, async (req, res) => {
     }
 
     const user = users[0];
-    // ใช้ role จาก login table แทน is_manager
+    // ส่งทั้ง role และ is_manager ไปให้ frontend
     const response = {
       ...user,
-      // isManager จะถูกคำนวณจาก role ใน frontend
       role: user.role,
+      isManager: user.is_manager === 1 || user.role === 'manager', // ใช้ทั้ง is_manager และ role
     };
     
     res.json({ user: response });
