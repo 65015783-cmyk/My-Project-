@@ -69,14 +69,17 @@ class _CheckInScreenState extends State<CheckInScreen> {
 
     try {
       // สร้าง painter สำหรับ QR (ไม่มีพื้นหลังในตัว)
+      // ใช้ error correction level M (Medium) + ขนาดใหญ่ (1024) 
+      // Level M ทำงานได้ดีกับ montita และขนาดใหญ่ช่วยให้ user อื่นๆ อ่านได้แม้ไฟล์ถูกบีบอัด
       final painter = QrPainter(
         data: _qrData,
         version: QrVersions.auto,
-        errorCorrectionLevel: QrErrorCorrectLevel.M,
+        errorCorrectionLevel: QrErrorCorrectLevel.M, // Medium - ทำงานได้ดีกับทุกอุปกรณ์
       );
 
       // วาดลง Canvas เอง โดยเติมพื้นหลังสีขาวก่อน กันภาพกลายเป็นสีดำทึบ
-      const imageSize = 512.0;
+      // ใช้ขนาด 1024 เพื่อเพิ่มรายละเอียดและทำให้อ่านได้แม้ไฟล์ถูกบีบอัดเป็น JPG
+      const imageSize = 1024.0;
       final recorder = ui.PictureRecorder();
       final canvas = Canvas(recorder);
 
@@ -540,7 +543,7 @@ class _CheckInScreenState extends State<CheckInScreen> {
                                 version: QrVersions.auto,
                                 size: 200.0,
                                 backgroundColor: Colors.white,
-                                errorCorrectionLevel: QrErrorCorrectLevel.M,
+                                errorCorrectionLevel: QrErrorCorrectLevel.M, // Medium - ทำงานได้ดีกับทุกอุปกรณ์
                               )
                             : const SizedBox(
                                 width: 200,

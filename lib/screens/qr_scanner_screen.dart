@@ -8,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:image_gallery_saver/image_gallery_saver.dart';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'qr_check_in_form_screen.dart';
 import '../services/auth_service.dart';
@@ -37,8 +38,11 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
     if (_isProcessing) return;
 
     final List<Barcode> barcodes = capture.barcodes;
+    debugPrint('[QR Scanner] Camera detected ${barcodes.length} barcode(s)');
+    
     for (final barcode in barcodes) {
       if (barcode.rawValue != null) {
+        debugPrint('[QR Scanner] Processing barcode type: ${barcode.type}, rawValue length: ${barcode.rawValue!.length}');
         _processQRCode(barcode.rawValue!);
         break;
       }
@@ -51,8 +55,11 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
     });
 
     try {
+      debugPrint('[QR Scanner] Processing QR code data: ${rawValue.substring(0, rawValue.length > 200 ? 200 : rawValue.length)}...');
+      
       // Try to parse as JSON
       final Map<String, dynamic> qrData = jsonDecode(rawValue);
+      debugPrint('[QR Scanner] QR data parsed successfully. Type: ${qrData['type']}, Screen: ${qrData['screen']}, Date: ${qrData['date'] ?? qrData['d']}');
 
       // รองรับทั้งรูปแบบเดิม และรูปแบบคีย์แบบย่อ (t/u/n/d)
       final String? typeLong = qrData['type'] as String?;
@@ -72,8 +79,11 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
           final today = DateTime.now();
           final todayString = '${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
           
+          debugPrint('[QR Scanner] QR Code date: $qrDateString, Today: $todayString');
+          
           if (!qrDateString.startsWith(todayString)) {
-            _showError('QR Code หมดอายุแล้ว กรุณาใช้ QR Code ของวันนี้');
+            debugPrint('[QR Scanner] QR Code date mismatch - QR is expired or from different day');
+            _showError('QR Code หมดอายุแล้ว กรุณาใช้ QR Code ของวันนี้\n\nQR Code ที่สแกน: $qrDateString\nวันที่วันนี้: $todayString\n\nกรุณาบันทึก QR Code ใหม่จากหน้าจอ Check-in');
             setState(() {
               _isProcessing = false;
             });
@@ -92,15 +102,20 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
         );
       } else {
         // Handle other QR code types
-        _showError('QR Code ไม่ถูกต้อง');
+        debugPrint('[QR Scanner] QR code is not a check-in QR. Type: $typeLong, Screen: $screen, TypeShort: $typeShort');
+        _showError('QR Code ไม่ถูกต้อง - ไม่ใช่ QR Code สำหรับเช็คอิน');
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
+      debugPrint('[QR Scanner] Error processing QR code: $e');
+      debugPrint('[QR Scanner] Stack trace: $stackTrace');
+      debugPrint('[QR Scanner] Raw value (first 200 chars): ${rawValue.substring(0, rawValue.length > 200 ? 200 : rawValue.length)}');
+      
       // If not JSON, try to handle as URL or plain text
       if (rawValue.startsWith('http')) {
         // Could open URL if needed
         _showError('QR Code นี้เป็นลิงก์ ไม่ใช่สำหรับเช็คอิน');
       } else {
-        _showError('QR Code ไม่ถูกต้อง');
+        _showError('QR Code ไม่ถูกต้อง - ไม่สามารถอ่านข้อมูลได้');
       }
     } finally {
       setState(() {
@@ -110,10 +125,17 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
   }
 
   void _showError(String message) {
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(message),
+        content: Text(
+          message,
+          style: const TextStyle(fontSize: 14),
+        ),
         backgroundColor: Colors.red,
+        duration: const Duration(seconds: 4),
+        behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.all(16),
       ),
     );
   }
@@ -123,64 +145,148 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
       final XFile? image = await _imagePicker.pickImage(
         source: ImageSource.gallery,
         // ใช้ไฟล์ต้นฉบับเต็ม ๆ ไม่บีบอัด เพื่อให้ ML Kit อ่าน QR ได้แม่นขึ้น
-        // imageQuality: 90,
+        imageQuality: 100, // ใช้คุณภาพสูงสุด
       );
 
-      if (image != null) {
-        setState(() {
-          _isProcessing = true;
-        });
+      if (image == null) return;
 
-        final file = File(image.path);
-        if (await file.exists()) {
-          try {
-            final inputImage = mlkit.InputImage.fromFilePath(file.path);
+      setState(() {
+        _isProcessing = true;
+      });
 
-            // ลองสแกนรอบที่ 1: แบบทั่วไป (ทุกประเภท barcode)
-            final defaultScanner = mlkit.BarcodeScanner();
-            List<mlkit.Barcode> barcodes =
-                await defaultScanner.processImage(inputImage);
-            debugPrint(
-                'MLKit (default) from gallery found ${barcodes.length} barcodes');
-
-            // ถ้าไม่เจอเลย ลองโหมดเน้น QR โดยเฉพาะอีกรอบ
-            if (barcodes.isEmpty) {
-              await defaultScanner.close();
-              final qrOnlyScanner = mlkit.BarcodeScanner(
-                formats: [mlkit.BarcodeFormat.qrCode],
-              );
-              barcodes = await qrOnlyScanner.processImage(inputImage);
-              debugPrint(
-                  'MLKit (QR only) from gallery found ${barcodes.length} barcodes');
-              await qrOnlyScanner.close();
-            } else {
-              await defaultScanner.close();
-            }
-
-            if (barcodes.isNotEmpty) {
-              final barcode = barcodes.first;
-              final value = (barcode.displayValue?.isNotEmpty ?? false)
-                  ? barcode.displayValue!
-                  : (barcode.rawValue ?? '');
-
-              if (value.isNotEmpty) {
-                _processQRCode(value);
-                return;
-              }
-            }
-          } catch (e) {
-            debugPrint('Error scanning QR code from image with ML Kit: $e');
-          }
-        }
-
+      final file = File(image.path);
+      if (!await file.exists()) {
         setState(() {
           _isProcessing = false;
         });
         if (mounted) {
-          // ปรับข้อความให้แนะนำวิธีแก้ให้ผู้ใช้ด้วย
-          _showError(
-              'ไม่พบ QR Code ในรูปภาพ\nกรุณาใช้รูปที่เห็น QR ชัด ๆ หรือครอปให้เหลือเฉพาะ QR Code');
+          _showError('ไม่พบไฟล์รูปภาพ กรุณาลองอีกครั้ง');
         }
+        return;
+      }
+
+      mlkit.BarcodeScanner? defaultScanner;
+      mlkit.BarcodeScanner? qrOnlyScanner;
+      
+      // ตรวจสอบขนาดไฟล์ก่อน (ใช้ได้ทั้งในและนอก try block)
+      final fileSize = await file.length();
+      final fileSizeKB = (fileSize / 1024).toStringAsFixed(2);
+      final extension = file.path.split('.').last;
+      
+      try {
+        debugPrint('[QR Scanner] ====== GALLERY SCAN START ======');
+        debugPrint('[QR Scanner] Platform: ${Platform.operatingSystem} ${Platform.operatingSystemVersion}');
+        debugPrint('[QR Scanner] Image file size: ${fileSize} bytes ($fileSizeKB KB)');
+        debugPrint('[QR Scanner] Image path: ${file.path}');
+        debugPrint('[QR Scanner] File extension: $extension');
+        debugPrint('[QR Scanner] File exists: ${await file.exists()}');
+        
+        List<mlkit.Barcode> barcodes = [];
+        mlkit.InputImage? inputImage;
+        
+        // ลองวิธีที่ 1: ใช้ fromFilePath
+        try {
+          inputImage = mlkit.InputImage.fromFilePath(file.path);
+          debugPrint('[QR Scanner] ✓ Created InputImage.fromFilePath successfully');
+        } catch (e) {
+          debugPrint('[QR Scanner] ✗ Failed to create InputImage from file path: $e');
+        }
+
+        if (inputImage != null) {
+          // ลองสแกนรอบที่ 1: แบบทั่วไป (ทุกประเภท barcode)
+          defaultScanner = mlkit.BarcodeScanner();
+          barcodes = await defaultScanner.processImage(inputImage);
+          debugPrint(
+              '[QR Scanner] MLKit (default) from gallery found ${barcodes.length} barcodes');
+
+          // ถ้าไม่เจอเลย ลองโหมดเน้น QR โดยเฉพาะอีกรอบ
+          if (barcodes.isEmpty) {
+            await defaultScanner.close();
+            defaultScanner = null;
+            
+            debugPrint('[QR Scanner] Trying QR-only scanner...');
+            qrOnlyScanner = mlkit.BarcodeScanner(
+              formats: [mlkit.BarcodeFormat.qrCode],
+            );
+            barcodes = await qrOnlyScanner.processImage(inputImage);
+            debugPrint(
+                '[QR Scanner] MLKit (QR only) from gallery found ${barcodes.length} barcodes');
+          }
+        }
+
+        if (barcodes.isNotEmpty) {
+          final barcode = barcodes.first;
+          final value = (barcode.displayValue?.isNotEmpty ?? false)
+              ? barcode.displayValue!
+              : (barcode.rawValue ?? '');
+          
+          debugPrint('[QR Scanner] Found QR code: ${value.substring(0, value.length > 100 ? 100 : value.length)}...');
+
+          if (value.isNotEmpty) {
+            // ปิด scanner ก่อน process QR code
+            await defaultScanner?.close();
+            await qrOnlyScanner?.close();
+            
+            _processQRCode(value);
+            return;
+          }
+        } else {
+          debugPrint('[QR Scanner] ====== SCAN FAILED ======');
+          debugPrint('[QR Scanner] No QR codes found in image');
+          debugPrint('[QR Scanner] Platform: ${Platform.operatingSystem} ${Platform.operatingSystemVersion}');
+          debugPrint('[QR Scanner] File size: $fileSize bytes ($fileSizeKB KB)');
+          debugPrint('[QR Scanner] Image path: ${file.path}');
+          debugPrint('[QR Scanner] File extension: $extension');
+          debugPrint('[QR Scanner] Tried methods:');
+          debugPrint('[QR Scanner]   1) MLKit default scanner (all barcode formats)');
+          debugPrint('[QR Scanner]   2) MLKit QR-only scanner');
+          debugPrint('[QR Scanner] =========================');
+          debugPrint('[QR Scanner] Possible causes:');
+          debugPrint('[QR Scanner]   - Device-specific issue: ML Kit may work better on some devices');
+          debugPrint('[QR Scanner]   - Image format not supported well by ML Kit');
+          debugPrint('[QR Scanner]   - QR code not clearly visible in image');
+          debugPrint('[QR Scanner]   - Image compression too high (JPG quality)');
+          debugPrint('[QR Scanner]   - QR code size too small in image');
+          debugPrint('[QR Scanner]   - Device gallery may have converted PNG to JPG automatically');
+          if (extension.toLowerCase() == 'jpg' || extension.toLowerCase() == 'jpeg') {
+            debugPrint('[QR Scanner] ⚠️ CRITICAL: File is JPG/JPG (not PNG)!');
+            debugPrint('[QR Scanner]    The device converted PNG to JPG automatically.');
+            debugPrint('[QR Scanner]    This is why scanning fails - ML Kit has trouble with compressed JPG.');
+            debugPrint('[QR Scanner]    User montita likely has a device that keeps PNG format.');
+          }
+          debugPrint('[QR Scanner] NOTE: Some users can scan successfully (e.g., montita)');
+          debugPrint('[QR Scanner]      while others cannot, even with same steps.');
+          debugPrint('[QR Scanner]      This suggests a device/OS compatibility issue with ML Kit.');
+          debugPrint('[QR Scanner] =========================');
+        }
+
+        // ปิด scanners
+        await defaultScanner?.close();
+        await qrOnlyScanner?.close();
+      } catch (e, stackTrace) {
+        debugPrint('[QR Scanner] Error scanning QR code from image with ML Kit: $e');
+        debugPrint('[QR Scanner] Stack trace: $stackTrace');
+        // ปิด scanners ในกรณีเกิด error
+        try {
+          await defaultScanner?.close();
+          await qrOnlyScanner?.close();
+        } catch (_) {}
+      }
+
+      setState(() {
+        _isProcessing = false;
+      });
+      
+      if (mounted) {
+        // แสดงข้อความ error พร้อมข้อมูล debug และคำแนะนำ
+        final platformInfo = '${Platform.operatingSystem} ${Platform.operatingSystemVersion}';
+        final isJpg = extension.toLowerCase() == 'jpg' || extension.toLowerCase() == 'jpeg';
+        final formatWarning = isJpg 
+            ? '\n⚠️ ปัญหาหลัก: ไฟล์ถูกแปลงเป็น JPG/JPG (ไม่ใช่ PNG)\n   อุปกรณ์แปลงไฟล์อัตโนมัติเมื่อบันทึกลงแกลเลอรี\n   ทำให้ ML Kit อ่าน QR Code ได้ยาก\n\n💡 ทำไม user montita สแกนได้:\n   อุปกรณ์ของ montita อาจไม่แปลง PNG เป็น JPG\n   หรือ ML Kit ทำงานกับ JPG ได้ดีกว่า\n'
+            : '\n💡 อุปกรณ์บางเครื่องอาจสแกนได้ (เช่น user montita)\n   แต่บางเครื่องอาจสแกนไม่ได้\n   นี่เป็นข้อจำกัดของ ML Kit library\n';
+        
+        _showError(
+            'ไม่พบ QR Code ในรูปภาพ\n\nข้อมูล:\n• ขนาดไฟล์: $fileSizeKB KB\n• ประเภทไฟล์: $extension${isJpg ? ' (ถูกแปลงจาก PNG)' : ''}\n• ระบบปฏิบัติการ: $platformInfo$formatWarning\nวิธีแก้ไข:\n✓ ใช้กล้องสแกนโดยตรง (แนะนำ - ให้ผลลัพธ์ดีที่สุด)\n✓ บันทึก QR Code ใหม่จากแอป\n• ตรวจสอบว่า QR Code ในรูปภาพชัดเจน ไม่เบลอ');
       }
     } catch (e) {
       setState(() {
