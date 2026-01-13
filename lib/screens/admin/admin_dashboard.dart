@@ -6,6 +6,7 @@ import 'employee_management_screen.dart';
 import 'attendance_management_screen.dart';
 import 'leave_management_screen.dart';
 import 'hr_dashboard_screen.dart';
+import 'hr_salary_dashboard_screen.dart';
 
 class AdminDashboard extends StatelessWidget {
   const AdminDashboard({super.key});
@@ -136,6 +137,21 @@ class AdminDashboard extends StatelessWidget {
                 Navigator.of(context).push(
                   MaterialPageRoute(
                     builder: (context) => const HRDashboardScreen(),
+                  ),
+                );
+              },
+            ),
+            const SizedBox(height: 16),
+            _buildManagementCard(
+              context,
+              title: 'จัดการเงินเดือน',
+              subtitle: 'ดูและจัดการข้อมูลเงินเดือนของพนักงานทั้งหมด',
+              icon: Icons.attach_money,
+              color: const Color(0xFF4CAF50),
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (context) => const HrSalaryDashboardScreen(),
                   ),
                 );
               },

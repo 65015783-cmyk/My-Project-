@@ -29,6 +29,15 @@ class ApiConfig {
   static String get leaveDetailsUrl => '$baseUrl/api/admin/leave-details';
   static String get notificationsUrl => '$baseUrl/api/notifications';
   
+  // HR Salary Management Endpoints
+  static String get hrSalarySummaryUrl => '$baseUrl/api/hr/salary/summary';
+  static String get hrSalaryEmployeesUrl => '$baseUrl/api/hr/salary/employees';
+  static String get hrSalaryRecentAdjustmentsUrl => '$baseUrl/api/hr/salary/recent-adjustments';
+  static String get hrSalaryStatisticsUrl => '$baseUrl/api/hr/salary/statistics';
+  static String get hrSalaryCreateUrl => '$baseUrl/api/hr/salary/create';
+  static String get hrSalaryAdjustUrl => '$baseUrl/api/hr/salary/adjust';
+  static String get hrSalaryEmployeeHistoryUrl => '$baseUrl/api/hr/salary/employee-history';
+  
   // Headers
   static Map<String, String> get headers => {
     'Content-Type': 'application/json',

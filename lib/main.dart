@@ -11,6 +11,7 @@ import 'services/auth_service.dart';
 import 'services/attendance_service.dart';
 import 'services/leave_service.dart';
 import 'services/salary_service.dart';
+import 'services/hr_salary_service.dart';
 import 'services/language_service.dart';
 import 'services/notification_service.dart';
 import 'screens/splash_screen.dart';
@@ -35,6 +36,7 @@ class MyApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => AttendanceService()),
         ChangeNotifierProvider(create: (_) => LeaveService()),
         ChangeNotifierProvider(create: (_) => SalaryService()),
+        ChangeNotifierProvider(create: (_) => HrSalaryService()),
         ChangeNotifierProvider(create: (_) => LanguageService()),
         ChangeNotifierProvider(create: (_) => NotificationService()),
       ],

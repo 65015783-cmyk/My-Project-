@@ -109,26 +109,51 @@ class _WorkHistoryScreenState extends State<WorkHistoryScreen> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(
-                  item.date,
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
+                Expanded(
+                  child: Text(
+                    item.date,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ),
+                const SizedBox(width: 8),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                   decoration: BoxDecoration(
                     color: item.status.color.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Text(
-                    item.status.label,
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
-                      color: item.status.color,
+                    border: Border.all(
+                      color: item.status.color.withValues(alpha: 0.3),
+                      width: 1,
                     ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        item.status == WorkStatus.complete
+                            ? Icons.check_circle
+                            : item.status == WorkStatus.pending
+                                ? Icons.pending
+                                : Icons.cancel,
+                        size: 14,
+                        color: item.status.color,
+                      ),
+                      const SizedBox(width: 4),
+                      Flexible(
+                        child: Text(
+                          item.status.label,
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: item.status.color,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],
@@ -209,8 +234,12 @@ class _WorkHistoryScreenState extends State<WorkHistoryScreen> {
         hoursWorked = hours.toStringAsFixed(1);
       }
 
-      final status =
-          att.checkOutTime != null ? WorkStatus.complete : WorkStatus.pending;
+      // กำหนดสถานะ: ครบ (เข้างานและออกงานครบ) หรือ รอดำเนินการ (ยังไม่ออกงาน)
+      final status = att.checkInTime != null && att.checkOutTime != null
+          ? WorkStatus.complete  // เข้างานและออกงานครบ
+          : att.checkInTime != null
+              ? WorkStatus.pending  // เข้างานแล้ว แต่ยังไม่ออกงาน
+              : WorkStatus.absent;  // ยังไม่เข้างาน (ไม่ควรเกิดใน history)
 
       return HistoryItem(
         date: att.dateFormatted,
@@ -240,8 +269,8 @@ class HistoryItem {
 }
 
 enum WorkStatus {
-  complete(Colors.green, 'ครบ'),
-  pending(Colors.orange, 'รอดำเนินการ'),
+  complete(Colors.green, 'เข้างานและออกงานครบ'),
+  pending(Colors.orange, 'ยังไม่ออกงาน'),
   absent(Colors.red, 'ขาดงาน');
 
   final Color color;
