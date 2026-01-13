@@ -7,12 +7,14 @@ import '../config/api_config.dart';
 
 class HrSalaryService extends ChangeNotifier {
   SalaryDashboardSummary? _summary;
+  PayrollOverview? _payrollOverview;
   List<EmployeeSalarySummary> _employees = [];
   List<SalaryHistoryModel> _recentAdjustments = [];
   bool _isLoading = false;
   String? _errorMessage;
 
   SalaryDashboardSummary? get summary => _summary;
+  PayrollOverview? get payrollOverview => _payrollOverview;
   List<EmployeeSalarySummary> get employees => List.unmodifiable(_employees);
   List<SalaryHistoryModel> get recentAdjustments => List.unmodifiable(_recentAdjustments);
   bool get isLoading => _isLoading;
@@ -29,7 +31,7 @@ class HrSalaryService extends ChangeNotifier {
       final token = prefs.getString('auth_token');
 
       if (token == null) {
-        _errorMessage = 'ไม่พบ Token';
+        _errorMessage = 'ไม่พบ Token กรุณาเข้าสู่ระบบใหม่';
         _isLoading = false;
         notifyListeners();
         return;
@@ -38,7 +40,7 @@ class HrSalaryService extends ChangeNotifier {
       final response = await http.get(
         Uri.parse(ApiConfig.hrSalarySummaryUrl),
         headers: ApiConfig.headersWithAuth(token),
-      );
+      ).timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
         // ตรวจสอบว่า response body เป็น JSON หรือ HTML
@@ -46,35 +48,49 @@ class HrSalaryService extends ChangeNotifier {
             response.body.trim().startsWith('<html')) {
           _errorMessage = 'API endpoint ยังไม่พร้อมใช้งาน (Server ส่ง HTML กลับมา)';
           debugPrint('API returned HTML instead of JSON. Response: ${response.body.substring(0, 200)}');
+          _summary = null;
+          _isLoading = false;
+          notifyListeners();
           return;
         }
         
-        final data = json.decode(response.body) as Map<String, dynamic>;
-        _summary = SalaryDashboardSummary.fromJson(data);
-        _errorMessage = null;
+        try {
+          final data = json.decode(response.body) as Map<String, dynamic>;
+          _summary = SalaryDashboardSummary.fromJson(data);
+          _errorMessage = null;
+        } catch (e) {
+          debugPrint('Error parsing summary JSON: $e');
+          _errorMessage = 'ไม่สามารถแปลงข้อมูลได้: ${e.toString()}';
+          _summary = null;
+        }
       } else {
         // ตรวจสอบว่า response body เป็น JSON หรือ HTML
         if (response.body.trim().startsWith('<!DOCTYPE') || 
             response.body.trim().startsWith('<html')) {
           _errorMessage = 'API endpoint ยังไม่พร้อมใช้งาน (HTTP ${response.statusCode})';
           debugPrint('API returned HTML instead of JSON. Status: ${response.statusCode}');
-          return;
-        }
-        
-        try {
-          final errorData = json.decode(response.body) as Map<String, dynamic>?;
-          _errorMessage = errorData?['message'] ?? 'ไม่สามารถโหลดข้อมูลได้ (HTTP ${response.statusCode})';
-        } catch (_) {
-          _errorMessage = 'ไม่สามารถโหลดข้อมูลได้ (HTTP ${response.statusCode})';
+          _summary = null;
+        } else {
+          try {
+            final errorData = json.decode(response.body) as Map<String, dynamic>?;
+            _errorMessage = errorData?['message'] ?? 'ไม่สามารถโหลดข้อมูลได้ (HTTP ${response.statusCode})';
+            _summary = null;
+          } catch (_) {
+            _errorMessage = 'ไม่สามารถโหลดข้อมูลได้ (HTTP ${response.statusCode})';
+            _summary = null;
+          }
         }
       }
     } catch (e) {
       debugPrint('Error loading salary summary: $e');
-      if (e.toString().contains('FormatException') && e.toString().contains('<!DOCTYPE')) {
+      if (e.toString().contains('TimeoutException')) {
+        _errorMessage = 'การเชื่อมต่อหมดเวลา กรุณาลองอีกครั้ง';
+      } else if (e.toString().contains('FormatException') && e.toString().contains('<!DOCTYPE')) {
         _errorMessage = 'API endpoint ยังไม่พร้อมใช้งาน (Server ส่ง HTML กลับมา)';
       } else {
         _errorMessage = 'เกิดข้อผิดพลาด: ${e.toString()}';
       }
+      _summary = null;
     } finally {
       _isLoading = false;
       notifyListeners();
@@ -92,7 +108,8 @@ class HrSalaryService extends ChangeNotifier {
       final token = prefs.getString('auth_token');
 
       if (token == null) {
-        _errorMessage = 'ไม่พบ Token';
+        _errorMessage = 'ไม่พบ Token กรุณาเข้าสู่ระบบใหม่';
+        _employees = [];
         _isLoading = false;
         notifyListeners();
         return;
@@ -114,7 +131,7 @@ class HrSalaryService extends ChangeNotifier {
       final response = await http.get(
         uri,
         headers: ApiConfig.headersWithAuth(token),
-      );
+      ).timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
         // ตรวจสอบว่า response body เป็น JSON หรือ HTML
@@ -122,41 +139,57 @@ class HrSalaryService extends ChangeNotifier {
             response.body.trim().startsWith('<html')) {
           _errorMessage = 'API endpoint ยังไม่พร้อมใช้งาน (Server ส่ง HTML กลับมา)';
           debugPrint('API returned HTML instead of JSON. Response: ${response.body.substring(0, 200)}');
+          _employees = [];
+          _isLoading = false;
+          notifyListeners();
           return;
         }
         
-        final data = json.decode(response.body);
-        final List<dynamic> employeesList = data is List
-            ? data
-            : (data['employees'] as List<dynamic>? ?? []);
+        try {
+          final data = json.decode(response.body);
+          final List<dynamic> employeesList = data is List
+              ? data
+              : (data['employees'] as List<dynamic>? ?? 
+                 data['data'] as List<dynamic>? ?? []);
 
-        _employees = employeesList
-            .map((json) => EmployeeSalarySummary.fromJson(json as Map<String, dynamic>))
-            .toList();
-        _errorMessage = null;
+          _employees = employeesList
+              .map((json) => EmployeeSalarySummary.fromJson(json as Map<String, dynamic>))
+              .toList();
+          _errorMessage = null;
+          debugPrint('Loaded ${_employees.length} employees from API');
+        } catch (e) {
+          debugPrint('Error parsing employees JSON: $e');
+          _errorMessage = 'ไม่สามารถแปลงข้อมูลได้: ${e.toString()}';
+          _employees = [];
+        }
       } else {
         // ตรวจสอบว่า response body เป็น JSON หรือ HTML
         if (response.body.trim().startsWith('<!DOCTYPE') || 
             response.body.trim().startsWith('<html')) {
           _errorMessage = 'API endpoint ยังไม่พร้อมใช้งาน (HTTP ${response.statusCode})';
           debugPrint('API returned HTML instead of JSON. Status: ${response.statusCode}');
-          return;
-        }
-        
-        try {
-          final errorData = json.decode(response.body) as Map<String, dynamic>?;
-          _errorMessage = errorData?['message'] ?? 'ไม่สามารถโหลดข้อมูลได้ (HTTP ${response.statusCode})';
-        } catch (_) {
-          _errorMessage = 'ไม่สามารถโหลดข้อมูลได้ (HTTP ${response.statusCode})';
+          _employees = [];
+        } else {
+          try {
+            final errorData = json.decode(response.body) as Map<String, dynamic>?;
+            _errorMessage = errorData?['message'] ?? 'ไม่สามารถโหลดข้อมูลได้ (HTTP ${response.statusCode})';
+            _employees = [];
+          } catch (_) {
+            _errorMessage = 'ไม่สามารถโหลดข้อมูลได้ (HTTP ${response.statusCode})';
+            _employees = [];
+          }
         }
       }
     } catch (e) {
       debugPrint('Error loading employees: $e');
-      if (e.toString().contains('FormatException') && e.toString().contains('<!DOCTYPE')) {
+      if (e.toString().contains('TimeoutException')) {
+        _errorMessage = 'การเชื่อมต่อหมดเวลา กรุณาลองอีกครั้ง';
+      } else if (e.toString().contains('FormatException') && e.toString().contains('<!DOCTYPE')) {
         _errorMessage = 'API endpoint ยังไม่พร้อมใช้งาน (Server ส่ง HTML กลับมา)';
       } else {
         _errorMessage = 'เกิดข้อผิดพลาด: ${e.toString()}';
       }
+      _employees = [];
     } finally {
       _isLoading = false;
       notifyListeners();
@@ -383,12 +416,105 @@ class HrSalaryService extends ChangeNotifier {
     }
   }
 
-  /// โหลดข้อมูลทั้งหมด (Summary + Employees + Recent Adjustments)
+  /// โหลดข้อมูล Payroll Overview (ภาพรวมเงินเดือนประจำเดือน)
+  Future<void> loadPayrollOverview({int? month, int? year}) async {
+    try {
+      _isLoading = true;
+      _errorMessage = null;
+      notifyListeners();
+
+      // ใช้ mock data ตามที่ส่งไปก่อน
+      await Future.delayed(const Duration(milliseconds: 300));
+      
+      final now = DateTime.now();
+      final selectedMonth = month ?? now.month;
+      final selectedYear = year ?? now.year;
+
+      // Mock data สำหรับ Payroll Overview
+      _payrollOverview = PayrollOverview(
+        totalGrossSalary: 1250000.00, // ยอดเงินเดือนรวม
+        totalEmployees: 12, // จำนวนพนักงาน 12 คน
+        totalDeductions: 87500.00, // ยอดหักรวม
+        netPay: 1162500.00, // ยอดจ่ายสุทธิ
+        status: PayrollStatus.calculated, // สถานะ: คำนวณแล้ว
+        month: selectedMonth,
+        year: selectedYear,
+      );
+
+      _errorMessage = null;
+      debugPrint('Payroll Overview loaded: ${_payrollOverview?.totalEmployees} employees');
+    } catch (e) {
+      debugPrint('Error loading payroll overview: $e');
+      _errorMessage = 'เกิดข้อผิดพลาด: ${e.toString()}';
+      _payrollOverview = null;
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  /// คำนวณ Payroll Overview จากข้อมูลพนักงานจริง
+  Future<void> _calculatePayrollOverviewFromEmployees(int month, int year) async {
+    try {
+      // ตรวจสอบว่ามีข้อมูลพนักงานอยู่แล้วหรือไม่
+      if (_employees.isEmpty) {
+        // ถ้ายังไม่มีข้อมูล ให้โหลดก่อน
+        await loadEmployees();
+      }
+
+      if (_employees.isEmpty) {
+        _errorMessage = 'ไม่พบข้อมูลพนักงาน';
+        _payrollOverview = null;
+        return;
+      }
+
+      // คำนวณจากข้อมูลพนักงานจริง
+      final totalEmployees = _employees.length;
+      double totalGrossSalary = 0.0;
+      double totalDeductions = 0.0;
+
+      for (var employee in _employees) {
+        // ยอดเงินเดือนรวม = เงินเดือนปัจจุบันของแต่ละคน
+        totalGrossSalary += employee.currentSalary;
+
+        // คำนวณยอดหัก (ประมาณ 7% ของเงินเดือน สำหรับประกันสังคม + ภาษี)
+        // ประกันสังคม: 5% ของเงินเดือน (สูงสุด 750 บาท)
+        final socialSecurity = (employee.currentSalary * 0.05).clamp(0.0, 750.0);
+        
+        // ภาษี: ประมาณ 2% ของเงินเดือน (ตัวอย่าง)
+        final tax = employee.currentSalary * 0.02;
+        
+        totalDeductions += socialSecurity + tax;
+      }
+
+      final netPay = totalGrossSalary - totalDeductions;
+
+      _payrollOverview = PayrollOverview(
+        totalGrossSalary: totalGrossSalary,
+        totalEmployees: totalEmployees,
+        totalDeductions: totalDeductions,
+        netPay: netPay,
+        status: PayrollStatus.calculated,
+        month: month,
+        year: year,
+      );
+
+      _errorMessage = null;
+      debugPrint('Calculated Payroll Overview: $totalEmployees employees, Total: $totalGrossSalary, Net: $netPay');
+    } catch (e) {
+      debugPrint('Error calculating payroll overview: $e');
+      _errorMessage = 'ไม่สามารถคำนวณข้อมูลได้: ${e.toString()}';
+      _payrollOverview = null;
+    }
+  }
+
+  /// โหลดข้อมูลทั้งหมด (Summary + Employees + Recent Adjustments + Payroll Overview)
   Future<void> loadAllData({String? search, String? department}) async {
     await Future.wait([
       loadSummary(),
       loadEmployees(search: search, department: department),
       loadRecentAdjustments(),
+      loadPayrollOverview(),
     ]);
   }
 

@@ -51,11 +51,43 @@ class Salary {
   double get netSalary => totalIncome - totalDeductions;
 
   factory Salary.fromJson(Map<String, dynamic> json) {
+    // Parse month - อาจเป็น int (1-12) หรือ string (ชื่อเดือนภาษาไทย)
+    String monthStr;
+    if (json['month'] is int) {
+      monthStr = _getThaiMonth(json['month'] as int);
+    } else {
+      monthStr = json['month']?.toString() ?? _getThaiMonth(DateTime.now().month);
+    }
+
+    // Parse year - อาจเป็น พ.ศ. หรือ ค.ศ.
+    int year;
+    if (json['year'] is int) {
+      year = json['year'] as int;
+      // ถ้า year < 2500 แสดงว่าเป็น ค.ศ. ให้แปลงเป็น พ.ศ.
+      if (year < 2500) {
+        year = year + 543;
+      }
+    } else {
+      year = DateTime.now().year + 543;
+    }
+
+    // Parse payment_date
+    DateTime paymentDate;
+    if (json['payment_date'] != null) {
+      try {
+        paymentDate = DateTime.parse(json['payment_date'].toString());
+      } catch (_) {
+        paymentDate = DateTime.now();
+      }
+    } else {
+      paymentDate = DateTime.now();
+    }
+
     return Salary(
-      month: json['month'],
-      year: json['year'],
-      paymentDate: DateTime.parse(json['payment_date']),
-      baseSalary: (json['base_salary'] as num).toDouble(),
+      month: monthStr,
+      year: year,
+      paymentDate: paymentDate,
+      baseSalary: (json['base_salary'] as num?)?.toDouble() ?? 0,
       bonus: (json['bonus'] as num?)?.toDouble() ?? 0,
       overtime: (json['overtime'] as num?)?.toDouble() ?? 0,
       allowance: (json['allowance'] as num?)?.toDouble() ?? 0,
@@ -67,10 +99,19 @@ class Salary {
       loan: (json['loan'] as num?)?.toDouble() ?? 0,
       fine: (json['fine'] as num?)?.toDouble() ?? 0,
       otherDeductions: (json['other_deductions'] as num?)?.toDouble() ?? 0,
-      workDays: json['work_days'],
-      leaveDays: json['leave_days'] ?? 0,
+      workDays: (json['work_days'] as num?)?.toInt() ?? 0,
+      leaveDays: (json['leave_days'] as num?)?.toInt() ?? 0,
       overtimeHours: (json['overtime_hours'] as num?)?.toDouble() ?? 0,
     );
+  }
+
+  static String _getThaiMonth(int month) {
+    const months = [
+      'มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน',
+      'พฤษภาคม', 'มิถุนายน', 'กรกฎาคม', 'สิงหาคม',
+      'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'
+    ];
+    return months[month - 1];
   }
 
   Map<String, dynamic> toJson() {

@@ -288,6 +288,10 @@ class _LeaveManagementScreenState extends State<LeaveManagementScreen> with Widg
         return 'ลากิจส่วนตัว';
       case 'vacation':
         return 'ลาพักผ่อน';
+      case 'early':
+        return 'ลากลับก่อน';
+      case 'half_day':
+        return 'ลาครึ่งวัน';
       default:
         return 'ลาประเภทอื่น';
     }
@@ -301,9 +305,36 @@ class _LeaveManagementScreenState extends State<LeaveManagementScreen> with Widg
         return Colors.blue;
       case 'vacation':
         return Colors.green;
+      case 'early':
+        return Colors.orange;
+      case 'half_day':
+        return Colors.purple;
       default:
         return Colors.grey;
     }
+  }
+
+  String _getDaysLabel(String? leaveType, String reason, dynamic totalDays) {
+    // สำหรับลากลับก่อน
+    if (leaveType == 'early') {
+      return 'Leave Early';
+    }
+    
+    // สำหรับลาครึ่งวัน
+    if (leaveType == 'half_day') {
+      // ตรวจสอบจาก reason ว่ามีคำว่า "เช้า" หรือ "บ่าย"
+      final reasonLower = reason.toLowerCase();
+      if (reasonLower.contains('เช้า') || reasonLower.contains('morning')) {
+        return 'Half-day leave (Morning)';
+      } else if (reasonLower.contains('บ่าย') || reasonLower.contains('afternoon')) {
+        return 'Half-day leave (Afternoon)';
+      }
+      // ถ้าไม่พบ ให้ default เป็น Morning
+      return 'Half-day leave (Morning)';
+    }
+    
+    // สำหรับประเภทอื่นๆ แสดงจำนวนวันปกติ
+    return '$totalDays วัน';
   }
 
   @override
@@ -670,7 +701,11 @@ class _LeaveManagementScreenState extends State<LeaveManagementScreen> with Widg
                             ? Icons.medical_services 
                             : leaveType == 'personal'
                                 ? Icons.person_outline
-                                : Icons.beach_access,
+                                : leaveType == 'early'
+                                    ? Icons.logout
+                                    : leaveType == 'half_day'
+                                        ? Icons.timelapse
+                                        : Icons.beach_access,
                         color: Colors.white,
                         size: 20,
                       ),
@@ -698,6 +733,7 @@ class _LeaveManagementScreenState extends State<LeaveManagementScreen> with Widg
               children: [
                 // Date Range
                 Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
                     Icon(Icons.calendar_today, size: 16, color: Colors.grey[600]),
                     const SizedBox(width: 8),
@@ -710,15 +746,16 @@ class _LeaveManagementScreenState extends State<LeaveManagementScreen> with Widg
                         ),
                       ),
                     ),
+                    const SizedBox(width: 8),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                       decoration: BoxDecoration(
                         color: Colors.blue[50],
                         borderRadius: BorderRadius.circular(8),
                         border: Border.all(color: Colors.blue[200]!),
                       ),
                       child: Text(
-                        '$totalDays วัน',
+                        _getDaysLabel(leaveType, reason, totalDays),
                         style: TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.bold,

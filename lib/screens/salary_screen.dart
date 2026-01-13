@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
+import 'package:share_plus/share_plus.dart';
 import '../services/salary_service.dart';
 import '../models/salary.dart';
 
@@ -11,88 +12,511 @@ class SalaryScreen extends StatefulWidget {
   State<SalaryScreen> createState() => _SalaryScreenState();
 }
 
-class _SalaryScreenState extends State<SalaryScreen> {
+class _SalaryScreenState extends State<SalaryScreen> with SingleTickerProviderStateMixin {
+  TabController get _tabController => _tabControllerInstance;
+  late final TabController _tabControllerInstance;
+  int _selectedYear = DateTime.now().year;
+  int _selectedMonth = DateTime.now().month;
+  bool _isDownloading = false;
+
   @override
   void initState() {
     super.initState();
-    Future.microtask(() {
-      final salaryService = Provider.of<SalaryService>(context, listen: false);
-      salaryService.fetchCurrentSalary();
-      salaryService.fetchSalaryHistory();
+    _tabControllerInstance = TabController(length: 2, vsync: this);
+    // รอให้ widget build เสร็จก่อนแล้วค่อยโหลดข้อมูล
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        final salaryService = Provider.of<SalaryService>(context, listen: false);
+        // โหลดข้อมูลเงินเดือนปัจจุบันก่อน
+        salaryService.fetchCurrentSalary();
+        // แล้วโหลดข้อมูลตามปี/เดือนที่เลือก
+        _loadSalaryData();
+      }
     });
+  }
+
+  @override
+  void dispose() {
+    _tabControllerInstance.dispose();
+    super.dispose();
+  }
+
+  void _loadSalaryData() {
+    if (!mounted) return;
+    final salaryService = Provider.of<SalaryService>(context, listen: false);
+    salaryService.fetchSalarySummary(year: _selectedYear, month: _selectedMonth);
+  }
+
+  List<int> _getYearList() {
+    final currentYear = DateTime.now().year;
+    return List.generate(5, (index) => currentYear - index + 1); // 5 ปีย้อนหลัง
+  }
+
+  List<String> _getMonthList() {
+    return [
+      'มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน',
+      'พฤษภาคม', 'มิถุนายน', 'กรกฎาคม', 'สิงหาคม',
+      'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'
+    ];
+  }
+
+  Future<void> _downloadSalarySlip() async {
+    setState(() {
+      _isDownloading = true;
+    });
+
+    try {
+      final salaryService = Provider.of<SalaryService>(context, listen: false);
+      final filePath = await salaryService.downloadSalarySlip(
+        year: _selectedYear,
+        month: _selectedMonth,
+      );
+
+      if (mounted && filePath != null) {
+        // แชร์ไฟล์
+        final file = XFile(filePath);
+        await Share.shareXFiles(
+          [file],
+          text: 'สลิปเงินเดือน ${_getMonthList()[_selectedMonth - 1]} $_selectedYear',
+        );
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('ดาวน์โหลดสำเร็จ'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('เกิดข้อผิดพลาด: $e'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isDownloading = false;
+        });
+      }
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFC),
+      backgroundColor: const Color(0xFFF5F5F5),
       appBar: AppBar(
         title: const Text(
-          'เงินเดือน',
+          'สรุปเงินเดือน',
           style: TextStyle(fontWeight: FontWeight.bold),
         ),
         elevation: 0,
         backgroundColor: Colors.white,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.history),
-            onPressed: () {
-              _showSalaryHistory(context);
-            },
+        bottom: TabBar(
+          controller: _tabController,
+          labelColor: Colors.blue,
+          unselectedLabelColor: Colors.grey,
+          indicatorColor: Colors.blue,
+          tabs: const [
+            Tab(text: 'สรุปเงินเดือน'),
+            Tab(text: 'สลิปเงินเดือน'),
+          ],
+        ),
+      ),
+      body: Column(
+        children: [
+          // Date Selection Card
+          Container(
+            margin: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.05),
+                  blurRadius: 10,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: _buildDropdown(
+                    label: 'เลือกปี',
+                    value: _selectedYear.toString(),
+                    items: _getYearList().map((year) => year.toString()).toList(),
+                    onChanged: (value) {
+                      setState(() {
+                        _selectedYear = int.parse(value!);
+                        _loadSalaryData();
+                      });
+                    },
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: _buildDropdown(
+                    label: 'เลือกเดือน',
+                    value: _getMonthList()[_selectedMonth - 1],
+                    items: _getMonthList(),
+                    onChanged: (value) {
+                      setState(() {
+                        _selectedMonth = _getMonthList().indexOf(value!) + 1;
+                        _loadSalaryData();
+                      });
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+          // Tab Content
+          Expanded(
+            child: TabBarView(
+              controller: _tabController,
+              children: [
+                _buildSummaryTab(),
+                _buildSlipTab(),
+              ],
+            ),
           ),
         ],
       ),
-      body: Consumer<SalaryService>(
-        builder: (context, salaryService, child) {
-          if (salaryService.isLoading) {
-            return const Center(child: CircularProgressIndicator());
-          }
+    );
+  }
 
-          final salary = salaryService.currentSalary;
-          if (salary == null) {
-            return const Center(
-              child: Text('ไม่มีข้อมูลเงินเดือน'),
-            );
-          }
+  Widget _buildDropdown({
+    required String label,
+    required String value,
+    required List<String> items,
+    required ValueChanged<String?> onChanged,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            color: Colors.grey[600],
+          ),
+        ),
+        const SizedBox(height: 8),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+          decoration: BoxDecoration(
+            border: Border.all(color: Colors.grey[300]!),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: DropdownButtonHideUnderline(
+            child: DropdownButton<String>(
+              value: value,
+              isExpanded: true,
+              icon: const Icon(Icons.arrow_drop_down),
+              items: items.map((item) {
+                return DropdownMenuItem<String>(
+                  value: item,
+                  child: Text(item),
+                );
+              }).toList(),
+              onChanged: onChanged,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
 
-          return SingleChildScrollView(
-            padding: const EdgeInsets.all(16),
+  Widget _buildSummaryTab() {
+    return Consumer<SalaryService>(
+      builder: (context, salaryService, child) {
+        if (salaryService.isLoading) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        // ใช้ selectedSalary ถ้ามี หรือใช้ currentSalary
+        final salary = salaryService.selectedSalary ?? salaryService.currentSalary;
+
+        if (salaryService.errorMessage != null || salary == null) {
+          return Center(
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
+              mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                // Net Salary Card
-                _buildNetSalaryCard(salary),
+                Icon(Icons.info_outline, size: 64, color: Colors.grey[400]),
                 const SizedBox(height: 16),
-                
-                // Payment Date Card
-                _buildPaymentDateCard(salary),
-                const SizedBox(height: 16),
-                
-                // Income Section
-                _buildSectionTitle('รายได้'),
+                Text(
+                  salaryService.errorMessage ?? 'ยังไม่เปิดเผยข้อมูล',
+                  style: TextStyle(color: Colors.grey[600]),
+                  textAlign: TextAlign.center,
+                ),
                 const SizedBox(height: 8),
-                _buildIncomeCard(salary),
-                const SizedBox(height: 16),
-                
-                // Deductions Section
-                _buildSectionTitle('รายการหัก'),
-                const SizedBox(height: 8),
-                _buildDeductionsCard(salary),
-                const SizedBox(height: 16),
-                
-                // Work Statistics
-                _buildSectionTitle('สถิติการทำงาน'),
-                const SizedBox(height: 8),
-                _buildWorkStatsCard(salary),
-                const SizedBox(height: 16),
-                
-                // Download Button
-                _buildDownloadButton(),
-                const SizedBox(height: 16),
+                Text(
+                  'กรุณารอเจ้าหน้าที่ฝ่ายบุคคล\nเปิดให้ตรวจสอบอีกครั้ง',
+                  style: TextStyle(color: Colors.grey[500], fontSize: 12),
+                  textAlign: TextAlign.center,
+                ),
               ],
             ),
           );
-        },
+        }
+
+        return SingleChildScrollView(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // Net Salary Card (UI เดิม)
+              _buildNetSalaryCard(salary),
+              const SizedBox(height: 16),
+              
+              // Payment Date Card
+              _buildPaymentDateCard(salary),
+              const SizedBox(height: 16),
+              
+              // Income Section
+              _buildSectionTitle('รายได้'),
+              const SizedBox(height: 8),
+              _buildIncomeCard(salary),
+              const SizedBox(height: 16),
+              
+              // Deductions Section
+              _buildSectionTitle('รายการหัก'),
+              const SizedBox(height: 8),
+              _buildDeductionsCard(salary),
+              const SizedBox(height: 16),
+              
+              // Work Statistics
+              _buildSectionTitle('สถิติการทำงาน'),
+              const SizedBox(height: 8),
+              _buildWorkStatsCard(salary),
+              const SizedBox(height: 16),
+              
+              // Download Button
+              _buildDownloadButton(salary),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildSlipTab() {
+    return Consumer<SalaryService>(
+      builder: (context, salaryService, child) {
+        // ใช้ selectedSalary หรือ currentSalary
+        final salary = salaryService.selectedSalary ?? salaryService.currentSalary;
+
+        if (salaryService.isLoading) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        if (salary == null && salaryService.errorMessage != null) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.description_outlined, size: 64, color: Colors.grey[400]),
+                const SizedBox(height: 16),
+                Text(
+                  salaryService.errorMessage!,
+                  style: TextStyle(color: Colors.grey[600]),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'กรุณารอเจ้าหน้าที่ฝ่ายบุคคล\nเปิดให้ตรวจสอบอีกครั้ง',
+                  style: TextStyle(color: Colors.grey[500], fontSize: 12),
+                  textAlign: TextAlign.center,
+                ),
+              ],
+            ),
+          );
+        }
+
+        // แสดงข้อมูลสลิปเงินเดือน
+        return SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              // สรุปข้อมูลสลิป
+              if (salary != null) ...[
+                Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(16),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.05),
+                        blurRadius: 10,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    children: [
+                      Icon(
+                        Icons.picture_as_pdf,
+                        size: 64,
+                        color: Colors.red[400],
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        'สลิปเงินเดือน',
+                        style: TextStyle(
+                          fontSize: 24,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.grey[800],
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        '${salary.month} ${salary.year}',
+                        style: TextStyle(
+                          fontSize: 18,
+                          color: Colors.grey[600],
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceAround,
+                        children: [
+                          _buildSlipInfoItem('เงินเดือนสุทธิ', salary.netSalary, Colors.green),
+                          _buildSlipInfoItem('รวมรายได้', salary.totalIncome, Colors.blue),
+                          _buildSlipInfoItem('รวมหัก', salary.totalDeductions, Colors.red),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 24),
+              ],
+              // ปุ่มดาวน์โหลด
+              ElevatedButton.icon(
+                onPressed: _isDownloading ? null : _downloadSalarySlip,
+                icon: _isDownloading
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Icon(Icons.download),
+                label: Text(
+                  _isDownloading ? 'กำลังดาวน์โหลด...' : 'ดาวน์โหลดสลิปเงินเดือน',
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.red[600],
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  elevation: 2,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.blue.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.info_outline, color: Colors.blue[700], size: 20),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'ไฟล์จะถูกบันทึกในเครื่องและสามารถแชร์ได้',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.blue[700],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildSlipInfoItem(String label, double amount, Color color) {
+    final numberFormat = NumberFormat('#,##0', 'th_TH');
+    return Column(
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            color: Colors.grey[600],
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          '฿${numberFormat.format(amount)}',
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+            color: color,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildPeriodCard(Salary salary) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'งวดปกติ',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              color: Colors.black87,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'เดือน ${salary.month} ${salary.year}',
+            style: TextStyle(
+              fontSize: 14,
+              color: Colors.grey[600],
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -214,63 +638,6 @@ class _SalaryScreenState extends State<SalaryScreen> {
     );
   }
 
-  Widget _buildPaymentDateCard(Salary salary) {
-    final dateFormat = DateFormat('d MMMM yyyy', 'th');
-    
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: const Color(0xFF9C27B0).withOpacity(0.1),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: const Icon(
-              Icons.calendar_today,
-              color: Color(0xFF9C27B0),
-              size: 24,
-            ),
-          ),
-          const SizedBox(width: 16),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'วันจ่ายเงินเดือน',
-                style: TextStyle(
-                  color: Colors.black54,
-                  fontSize: 14,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                dateFormat.format(salary.paymentDate),
-                style: const TextStyle(
-                  color: Colors.black87,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildSectionTitle(String title) {
     return Text(
       title,
@@ -305,7 +672,7 @@ class _SalaryScreenState extends State<SalaryScreen> {
           ],
           if (salary.overtime > 0) ...[
             const Divider(height: 24),
-            _buildDetailRow('ค่าล่วงเวลา (${salary.overtimeHours} ชม.)', salary.overtime, Colors.green),
+            _buildDetailRow('ค่าล่วงเวลา (${salary.overtimeHours.toInt()} ชม.)', salary.overtime, Colors.green),
           ],
           if (salary.allowance > 0) ...[
             const Divider(height: 24),
@@ -412,7 +779,7 @@ class _SalaryScreenState extends State<SalaryScreen> {
           ),
           _buildStatItem(
             Icons.access_time,
-            '${salary.overtimeHours}',
+            '${salary.overtimeHours.toInt()}',
             'ชั่วโมง OT',
             Colors.purple,
           ),
@@ -472,152 +839,91 @@ class _SalaryScreenState extends State<SalaryScreen> {
     );
   }
 
-  Widget _buildDownloadButton() {
+  Widget _buildPaymentDateCard(Salary salary) {
+    final dateFormat = DateFormat('d MMMM yyyy', 'th');
+    
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: const Color(0xFF2196F3).withOpacity(0.1),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: const Icon(
+              Icons.calendar_today,
+              color: Color(0xFF2196F3),
+              size: 24,
+            ),
+          ),
+          const SizedBox(width: 16),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'วันจ่ายเงินเดือน',
+                style: TextStyle(
+                  color: Colors.black54,
+                  fontSize: 14,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                dateFormat.format(salary.paymentDate),
+                style: const TextStyle(
+                  color: Colors.black87,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDownloadButton(Salary salary) {
     return ElevatedButton.icon(
-      onPressed: () {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('กำลังดาวน์โหลดสลิปเงินเดือน...')),
-        );
-      },
-      icon: const Icon(Icons.download),
-      label: const Text(
-        'ดาวน์โหลดสลิปเงินเดือน',
-        style: TextStyle(
+      onPressed: _isDownloading ? null : _downloadSalarySlip,
+      icon: _isDownloading
+          ? const SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: Colors.white,
+              ),
+            )
+          : const Icon(Icons.download),
+      label: Text(
+        _isDownloading ? 'กำลังดาวน์โหลด...' : 'ดาวน์โหลดสลิปเงินเดือน',
+        style: const TextStyle(
           fontSize: 16,
           fontWeight: FontWeight.w600,
         ),
       ),
       style: ElevatedButton.styleFrom(
-        backgroundColor: const Color(0xFF9C27B0),
+        backgroundColor: const Color(0xFF2196F3),
         foregroundColor: Colors.white,
         padding: const EdgeInsets.symmetric(vertical: 16),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(12),
         ),
         elevation: 2,
-      ),
-    );
-  }
-
-  void _showSalaryHistory(BuildContext context) {
-    final salaryService = Provider.of<SalaryService>(context, listen: false);
-    
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) => DraggableScrollableSheet(
-        initialChildSize: 0.7,
-        minChildSize: 0.5,
-        maxChildSize: 0.95,
-        builder: (context, scrollController) => Container(
-          decoration: const BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-          ),
-          child: Column(
-            children: [
-              Container(
-                margin: const EdgeInsets.symmetric(vertical: 12),
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: Colors.grey[300],
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-              const Padding(
-                padding: EdgeInsets.all(16),
-                child: Text(
-                  'ประวัติเงินเดือน',
-                  style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-              Expanded(
-                child: ListView.separated(
-                  controller: scrollController,
-                  padding: const EdgeInsets.all(16),
-                  itemCount: salaryService.salaryHistory.length,
-                  separatorBuilder: (context, index) => const SizedBox(height: 12),
-                  itemBuilder: (context, index) {
-                    final salary = salaryService.salaryHistory[index];
-                    return _buildHistoryCard(salary);
-                  },
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildHistoryCard(Salary salary) {
-    final numberFormat = NumberFormat('#,##0.00', 'th_TH');
-    final dateFormat = DateFormat('d MMM yyyy', 'th');
-    
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey[200]!),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.03),
-            blurRadius: 5,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                '${salary.month} ${salary.year}',
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.black87,
-                ),
-              ),
-              Text(
-                dateFormat.format(salary.paymentDate),
-                style: TextStyle(
-                  fontSize: 13,
-                  color: Colors.grey[600],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text(
-                'เงินเดือนสุทธิ',
-                style: TextStyle(
-                  fontSize: 14,
-                  color: Colors.black54,
-                ),
-              ),
-              Text(
-                '฿ ${numberFormat.format(salary.netSalary)}',
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF9C27B0),
-                ),
-              ),
-            ],
-          ),
-        ],
       ),
     );
   }

@@ -37,6 +37,12 @@ class ApiConfig {
   static String get hrSalaryCreateUrl => '$baseUrl/api/hr/salary/create';
   static String get hrSalaryAdjustUrl => '$baseUrl/api/hr/salary/adjust';
   static String get hrSalaryEmployeeHistoryUrl => '$baseUrl/api/hr/salary/employee-history';
+  static String get hrPayrollOverviewUrl => '$baseUrl/api/hr/payroll/overview';
+  
+  // Employee Salary Endpoints
+  static String get salarySummaryUrl => '$baseUrl/api/salary/summary';
+  static String get salarySlipUrl => '$baseUrl/api/salary/slip';
+  static String get salarySlipDownloadUrl => '$baseUrl/api/salary/slip/download';
   
   // Headers
   static Map<String, String> get headers => {

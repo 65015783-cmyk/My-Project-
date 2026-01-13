@@ -1,4 +1,5 @@
 import 'package:intl/intl.dart';
+import 'package:flutter/material.dart';
 
 /// Model สำหรับข้อมูลประวัติเงินเดือน (salary_history table)
 class SalaryHistoryModel {
@@ -129,6 +130,17 @@ class EmployeeSalarySummary {
   });
 
   factory EmployeeSalarySummary.fromJson(Map<String, dynamic> json) {
+    // Parse current_salary - อาจเป็น num หรือ String
+    double parseSalary(dynamic value) {
+      if (value == null) return 0.0;
+      if (value is num) return value.toDouble();
+      if (value is String) {
+        final parsed = double.tryParse(value);
+        return parsed ?? 0.0;
+      }
+      return 0.0;
+    }
+
     return EmployeeSalarySummary(
       employeeId: json['employee_id'] as int? ?? 
                   int.tryParse(json['employee_id']?.toString() ?? '') ?? 0,
@@ -136,8 +148,8 @@ class EmployeeSalarySummary {
                 '${json['first_name'] ?? ''} ${json['last_name'] ?? ''}'.trim(),
       position: json['position']?.toString(),
       department: json['department']?.toString(),
-      currentSalary: (json['current_salary'] as num?)?.toDouble() ?? 0.0,
-      startingSalary: (json['starting_salary'] as num?)?.toDouble() ?? 0.0,
+      currentSalary: parseSalary(json['current_salary']),
+      startingSalary: parseSalary(json['starting_salary']),
       adjustmentCount: json['adjustment_count'] as int? ?? 
                       int.tryParse(json['adjustment_count']?.toString() ?? '0') ?? 0,
       lastAdjustmentDate: json['last_adjustment_date'] != null
@@ -217,6 +229,87 @@ class SalaryDashboardSummary {
   String get minSalaryFormatted {
     final formatter = NumberFormat('#,###');
     return '${formatter.format(minSalary)} บาท';
+  }
+}
+
+/// Model สำหรับข้อมูล Payroll Overview (ภาพรวมเงินเดือนประจำเดือน)
+class PayrollOverview {
+  final double totalGrossSalary; // ยอดเงินเดือนรวมประจำเดือน
+  final int totalEmployees; // จำนวนพนักงานที่รับเงินเดือน
+  final double totalDeductions; // ยอดหักรวม (ประกันสังคม, ภาษี, สาย/ขาดงาน)
+  final double netPay; // ยอดจ่ายสุทธิ (Net Pay)
+  final PayrollStatus status; // สถานะการจ่ายเงิน
+  final int month; // เดือน
+  final int year; // ปี
+
+  PayrollOverview({
+    required this.totalGrossSalary,
+    required this.totalEmployees,
+    required this.totalDeductions,
+    required this.netPay,
+    required this.status,
+    required this.month,
+    required this.year,
+  });
+
+  factory PayrollOverview.fromJson(Map<String, dynamic> json) {
+    return PayrollOverview(
+      totalGrossSalary: (json['total_gross_salary'] as num?)?.toDouble() ?? 0.0,
+      totalEmployees: json['total_employees'] as int? ?? 0,
+      totalDeductions: (json['total_deductions'] as num?)?.toDouble() ?? 0.0,
+      netPay: (json['net_pay'] as num?)?.toDouble() ?? 0.0,
+      status: PayrollStatus.fromString(json['status']?.toString() ?? 'PENDING'),
+      month: json['month'] as int? ?? DateTime.now().month,
+      year: json['year'] as int? ?? DateTime.now().year,
+    );
+  }
+
+  /// ยอดเงินเดือนรวม (Format)
+  String get totalGrossSalaryFormatted {
+    final formatter = NumberFormat('#,###');
+    return '${formatter.format(totalGrossSalary.round())} บาท';
+  }
+
+  /// ยอดหักรวม (Format)
+  String get totalDeductionsFormatted {
+    final formatter = NumberFormat('#,###');
+    return '${formatter.format(totalDeductions.round())} บาท';
+  }
+
+  /// ยอดจ่ายสุทธิ (Format)
+  String get netPayFormatted {
+    final formatter = NumberFormat('#,###');
+    return '${formatter.format(netPay.round())} บาท';
+  }
+
+  /// ชื่อเดือนภาษาไทย
+  String get monthName {
+    const months = [
+      'มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน',
+      'พฤษภาคม', 'มิถุนายน', 'กรกฎาคม', 'สิงหาคม',
+      'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'
+    ];
+    return months[month - 1];
+  }
+}
+
+/// Enum สำหรับสถานะการจ่ายเงิน
+enum PayrollStatus {
+  pending('PENDING', 'รอคำนวณ', Colors.orange),
+  calculated('CALCULATED', 'คำนวณแล้ว', Colors.blue),
+  paid('PAID', 'จ่ายแล้ว', Colors.green);
+
+  final String value;
+  final String label;
+  final Color color;
+
+  const PayrollStatus(this.value, this.label, this.color);
+
+  static PayrollStatus fromString(String value) {
+    return PayrollStatus.values.firstWhere(
+      (status) => status.value == value.toUpperCase(),
+      orElse: () => PayrollStatus.pending,
+    );
   }
 }
 

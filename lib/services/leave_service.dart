@@ -43,10 +43,12 @@ class LeaveService extends ChangeNotifier {
             type: _parseLeaveType(leave['leave_type']),
             startDate: DateTime.parse(leave['start_date']),
             endDate: DateTime.parse(leave['end_date']),
-            totalDays: leave['total_days'] ?? _calculateTotalDays(
-              DateTime.parse(leave['start_date']),
-              DateTime.parse(leave['end_date']),
-            ),
+            totalDays: leave['total_days'] != null
+                ? (leave['total_days'] as num).toDouble()
+                : _calculateTotalDays(
+                    DateTime.parse(leave['start_date']),
+                    DateTime.parse(leave['end_date']),
+                  ).toDouble(),
             reason: leave['reason'] ?? '',
             documentPaths: [],
             approver: leave['approved_by'] != null ? 'Manager' : '',
@@ -108,9 +110,36 @@ class LeaveService extends ChangeNotifier {
             (data['personalRemaining'] as num?)?.toInt() ??
                 (remaining - sickRemaining);
 
+        // คำนวณ earlyLeave และ halfDayLeave ที่เหลือ
+        final currentYear = DateTime.now().year;
+        final earlyLeaveUsed = _leaveRequests.where((leave) =>
+            leave.type == LeaveType.earlyLeave &&
+            leave.startDate.year == currentYear &&
+            leave.status != LeaveStatus.rejected).length;
+        final halfDayLeaveUsed = _leaveRequests.where((leave) =>
+            leave.type == LeaveType.halfDayLeave &&
+            leave.startDate.year == currentYear &&
+            leave.status != LeaveStatus.rejected).length;
+        
+        final int earlyLeaveRemaining;
+        if (data['earlyLeaveRemaining'] != null) {
+          earlyLeaveRemaining = (data['earlyLeaveRemaining'] as num).toInt();
+        } else {
+          earlyLeaveRemaining = (10 - earlyLeaveUsed).clamp(0, 10);
+        }
+        
+        final int halfDayLeaveRemaining;
+        if (data['halfDayLeaveRemaining'] != null) {
+          halfDayLeaveRemaining = (data['halfDayLeaveRemaining'] as num).toInt();
+        } else {
+          halfDayLeaveRemaining = (999 - halfDayLeaveUsed).clamp(0, 999);
+        }
+
         _leaveBalance = LeaveBalance(
           sickLeaveRemaining: sickRemaining,
           personalLeaveRemaining: personalRemaining,
+          earlyLeaveRemaining: earlyLeaveRemaining,
+          halfDayLeaveRemaining: halfDayLeaveRemaining,
         );
         notifyListeners();
       } else {
@@ -132,6 +161,7 @@ class LeaveService extends ChangeNotifier {
     required DateTime endDate,
     required String reason,
     required List<String> documentPaths,
+    required double totalDays, // รับ totalDays จาก UI
   }) async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -172,9 +202,8 @@ class LeaveService extends ChangeNotifier {
 
       if (response.statusCode == 201) {
         final data = json.decode(response.body) as Map<String, dynamic>;
-        final totalDays = _calculateTotalDays(startDate, endDate);
         
-        // สร้าง leave request object
+        // สร้าง leave request object (ใช้ totalDays ที่ส่งมา)
         final newRequest = LeaveRequest(
           id: data['leaveId'].toString(),
           type: type,
@@ -191,23 +220,47 @@ class LeaveService extends ChangeNotifier {
         _leaveRequests.insert(0, newRequest);
         
         // Update leave balance (หักเฉพาะวันลาป่วยและลากิจเต็มวัน)
+        // สำหรับลาครึ่งวัน (0.5 วัน) ให้หักจาก personal leave
         switch (type) {
           case LeaveType.sickLeave:
             _leaveBalance = LeaveBalance(
-              sickLeaveRemaining: _leaveBalance.sickLeaveRemaining - totalDays,
+              sickLeaveRemaining: (_leaveBalance.sickLeaveRemaining - totalDays).round(),
               personalLeaveRemaining: _leaveBalance.personalLeaveRemaining,
+              earlyLeaveRemaining: _leaveBalance.earlyLeaveRemaining,
+              halfDayLeaveRemaining: _leaveBalance.halfDayLeaveRemaining,
             );
             break;
           case LeaveType.personalLeave:
             _leaveBalance = LeaveBalance(
               sickLeaveRemaining: _leaveBalance.sickLeaveRemaining,
               personalLeaveRemaining:
-                  _leaveBalance.personalLeaveRemaining - totalDays,
+                  (_leaveBalance.personalLeaveRemaining - totalDays).round(),
+              earlyLeaveRemaining: _leaveBalance.earlyLeaveRemaining,
+              halfDayLeaveRemaining: _leaveBalance.halfDayLeaveRemaining,
+            );
+            break;
+          case LeaveType.halfDayLeave:
+            // ลาครึ่งวัน → หัก 0.5 วันจาก personal leave และหักจำนวนครั้ง
+            _leaveBalance = LeaveBalance(
+              sickLeaveRemaining: _leaveBalance.sickLeaveRemaining,
+              personalLeaveRemaining:
+                  (_leaveBalance.personalLeaveRemaining - totalDays).round(),
+              earlyLeaveRemaining: _leaveBalance.earlyLeaveRemaining,
+              halfDayLeaveRemaining: (_leaveBalance.halfDayLeaveRemaining - 1).clamp(0, 999),
             );
             break;
           case LeaveType.earlyLeave:
-          case LeaveType.halfDayLeave:
-            // ไม่ปรับยอดวันลาคงเหลือ สำหรับลากลับก่อน/ลาครึ่งวัน
+            // ลากลับก่อน: ถ้า > 2 ชม. (0.5 วัน) → หักจาก personal leave
+            // ถ้า ≤ 2 ชม. (0 วัน) → ไม่หัก
+            // แต่หักจำนวนครั้งเสมอ
+            _leaveBalance = LeaveBalance(
+              sickLeaveRemaining: _leaveBalance.sickLeaveRemaining,
+              personalLeaveRemaining: totalDays > 0
+                  ? (_leaveBalance.personalLeaveRemaining - totalDays).round()
+                  : _leaveBalance.personalLeaveRemaining,
+              earlyLeaveRemaining: (_leaveBalance.earlyLeaveRemaining - 1).clamp(0, 10),
+              halfDayLeaveRemaining: _leaveBalance.halfDayLeaveRemaining,
+            );
             break;
         }
 

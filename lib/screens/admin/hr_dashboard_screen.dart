@@ -1820,35 +1820,102 @@ class ExecutiveSummaryScreen extends StatelessWidget {
         ),
       ),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.symmetric(horizontal: 0, vertical: 20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Header
-            Container(
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [Colors.purple[400]!, Colors.blue[400]!],
+            // Header - มี padding ด้านซ้ายและขวาเล็กน้อย
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [Colors.purple[400]!, Colors.blue[400]!],
+                  ),
+                  borderRadius: BorderRadius.circular(12),
                 ),
-                borderRadius: BorderRadius.circular(16),
+                child: Column(
+                  children: [
+                    const Text(
+                      'รายงานสรุปข้อมูลวันลา',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'วันที่: ${DateTime.now().toString().split(' ')[0]}',
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: Colors.white70,
+                      ),
+                    ),
+                  ],
+                ),
               ),
-              child: Column(
+            ),
+            const SizedBox(height: 24),
+
+            // Key Metrics
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: const Text(
+                'ตัวชี้วัดหลัก',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Row(
                 children: [
-                  const Text(
-                    'รายงานสรุปข้อมูลวันลา',
-                    style: TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
+                  Expanded(
+                    child: _buildMetricCard(
+                      'จำนวนพนักงาน',
+                      totalEmployees.toString(),
+                      Icons.people,
+                      Colors.blue,
                     ),
                   ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'วันที่: ${DateTime.now().toString().split(' ')[0]}',
-                    style: const TextStyle(
-                      fontSize: 14,
-                      color: Colors.white70,
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _buildMetricCard(
+                      'วันลาที่อนุมัติ',
+                      totalApproved.toString(),
+                      Icons.check_circle,
+                      Colors.green,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: _buildMetricCard(
+                      'รออนุมัติ',
+                      totalPending.toString(),
+                      Icons.pending,
+                      Colors.orange,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _buildMetricCard(
+                      'ไม่อนุมัติ',
+                      totalRejected.toString(),
+                      Icons.cancel,
+                      Colors.red,
                     ),
                   ),
                 ],
@@ -1856,72 +1923,21 @@ class ExecutiveSummaryScreen extends StatelessWidget {
             ),
             const SizedBox(height: 24),
 
-            // Key Metrics
-            const Text(
-              'ตัวชี้วัดหลัก',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: _buildMetricCard(
-                    'จำนวนพนักงาน',
-                    totalEmployees.toString(),
-                    Icons.people,
-                    Colors.blue,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: _buildMetricCard(
-                    'วันลาที่อนุมัติ',
-                    totalApproved.toString(),
-                    Icons.check_circle,
-                    Colors.green,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: _buildMetricCard(
-                    'รออนุมัติ',
-                    totalPending.toString(),
-                    Icons.pending,
-                    Colors.orange,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: _buildMetricCard(
-                    'ไม่อนุมัติ',
-                    totalRejected.toString(),
-                    Icons.cancel,
-                    Colors.red,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 24),
-
             // Department Summary
-            const Text(
-              'สรุปตามแผนก',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: const Text(
+                'สรุปตามแผนก',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
             ),
             const SizedBox(height: 12),
             ...deptStats.entries.map((entry) {
               return Padding(
-                padding: const EdgeInsets.only(bottom: 12),
+                padding: const EdgeInsets.only(bottom: 12, left: 20, right: 20),
                 child: Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
@@ -1988,12 +2004,14 @@ class ExecutiveSummaryScreen extends StatelessWidget {
 
             const SizedBox(height: 24),
             // Recommendations
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.blue[50],
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.blue[200]!),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.blue[50],
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.blue[200]!),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -2028,6 +2046,7 @@ class ExecutiveSummaryScreen extends StatelessWidget {
                     Colors.blue,
                   ),
                 ],
+              ),
               ),
             ),
           ],

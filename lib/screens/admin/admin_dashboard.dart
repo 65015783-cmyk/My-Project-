@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../services/auth_service.dart';
 import '../../services/attendance_service.dart';
+import '../../login/login_screen.dart';
 import 'employee_management_screen.dart';
 import 'attendance_management_screen.dart';
 import 'leave_management_screen.dart';
@@ -42,12 +43,44 @@ class AdminDashboard extends StatelessWidget {
         actions: [
           IconButton(
             icon: const Icon(Icons.logout, color: Colors.red),
-            onPressed: () {
-              final attendanceService = Provider.of<AttendanceService>(context, listen: false);
-              // Clear attendance data เมื่อ logout
-              attendanceService.clearAttendance();
-              authService.logout();
-              Navigator.of(context).pushReplacementNamed('/login');
+            onPressed: () async {
+              try {
+                print('[AdminDashboard] Logout button pressed');
+                final attendanceService = Provider.of<AttendanceService>(context, listen: false);
+                // Clear attendance data เมื่อ logout
+                attendanceService.clearAttendance();
+                print('[AdminDashboard] Attendance cleared');
+                
+                await authService.logout();
+                print('[AdminDashboard] Auth service logged out');
+                
+                // รอสักครู่เพื่อให้แน่ใจว่า logout เสร็จ
+                await Future.delayed(const Duration(milliseconds: 100));
+                
+                if (context.mounted) {
+                  print('[AdminDashboard] Navigating to login screen');
+                  // ลบ navigation stack ทั้งหมดและไปหน้า login โดยใช้ MaterialPageRoute
+                  Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
+                    MaterialPageRoute(
+                      builder: (context) => const LoginScreen(),
+                      settings: const RouteSettings(name: '/login'),
+                    ),
+                    (route) => false,
+                  );
+                  print('[AdminDashboard] Navigation completed');
+                } else {
+                  print('[AdminDashboard] Context not mounted, cannot navigate');
+                }
+              } catch (e) {
+                print('[AdminDashboard] Error during logout: $e');
+                // ถ้าเกิด error ให้ลอง navigate อีกครั้ง
+                if (context.mounted) {
+                  Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
+                    MaterialPageRoute(builder: (context) => const LoginScreen()),
+                    (route) => false,
+                  );
+                }
+              }
             },
           ),
         ],

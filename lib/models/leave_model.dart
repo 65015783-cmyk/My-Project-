@@ -29,7 +29,7 @@ class LeaveRequest {
   final LeaveType type;
   final DateTime startDate;
   final DateTime endDate;
-  final int totalDays;
+  final double totalDays;
   final String reason;
   final List<String> documentPaths;
   final String approver;
@@ -106,7 +106,7 @@ class LeaveRequest {
       ),
       startDate: DateTime.parse(json['startDate'] as String),
       endDate: DateTime.parse(json['endDate'] as String),
-      totalDays: json['totalDays'] as int,
+      totalDays: (json['totalDays'] as num).toDouble(),
       reason: json['reason'] as String,
       documentPaths: List<String>.from(json['documentPaths'] as List),
       approver: json['approver'] as String,
@@ -143,17 +143,23 @@ class LeaveRequest {
 class LeaveBalance {
   final int sickLeaveRemaining;
   final int personalLeaveRemaining;
+  final int earlyLeaveRemaining; // จำนวนครั้งที่เหลือ (ไม่ใช่จำนวนวัน)
+  final int halfDayLeaveRemaining; // จำนวนครั้งที่เหลือ (ไม่ใช่จำนวนวัน)
   final int totalRemaining;
 
   LeaveBalance({
     required this.sickLeaveRemaining,
     required this.personalLeaveRemaining,
+    this.earlyLeaveRemaining = 10, // จำกัด 10 ครั้งต่อปี
+    this.halfDayLeaveRemaining = 999, // ไม่จำกัด (หรือตั้งค่าตามต้องการ)
   }) : totalRemaining = sickLeaveRemaining + personalLeaveRemaining;
 
   factory LeaveBalance.defaultBalance() {
     return LeaveBalance(
       sickLeaveRemaining: 30,
       personalLeaveRemaining: 10,
+      earlyLeaveRemaining: 10,
+      halfDayLeaveRemaining: 999,
     );
   }
 }

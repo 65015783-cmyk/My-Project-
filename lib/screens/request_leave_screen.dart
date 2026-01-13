@@ -20,10 +20,17 @@ class _RequestLeaveScreenState extends State<RequestLeaveScreen> {
   LeaveType? _selectedLeaveType;
   DateTime? _startDate;
   DateTime? _endDate;
-  int _totalDays = 0;
+  double _totalDays = 0.0; // เปลี่ยนเป็น double เพื่อรองรับ 0.5 วัน
   final TextEditingController _reasonController = TextEditingController();
   final List<String> _documentPaths = [];
   bool _isSubmitting = false;
+
+  // ตัวเลือกช่วงเวลาสำหรับ "ลากลับก่อน" / "ลาครึ่งวัน"
+  TimeOfDay? _earlyLeaveTime; // เวลาออก เช่น 14:30
+  String? _halfDaySession; // 'morning' หรือ 'afternoon' สำหรับลาครึ่งวัน
+  
+  // เวลาออกงานปกติ (default: 17:30)
+  static const TimeOfDay _normalEndTime = TimeOfDay(hour: 17, minute: 30);
 
   @override
   void dispose() {
@@ -32,12 +39,59 @@ class _RequestLeaveScreenState extends State<RequestLeaveScreen> {
   }
 
   void _calculateDays() {
-    if (_startDate != null && _endDate != null) {
+    if (_selectedLeaveType == LeaveType.earlyLeave) {
+      // ลากลับก่อน: คำนวณตามเวลาออก
+      if (_earlyLeaveTime != null) {
+        // คำนวณความแตกต่างระหว่างเวลาออกปกติ (17:30) กับเวลาออกที่เลือก
+        final normalMinutes = _normalEndTime.hour * 60 + _normalEndTime.minute;
+        final leaveMinutes = _earlyLeaveTime!.hour * 60 + _earlyLeaveTime!.minute;
+        final diffMinutes = normalMinutes - leaveMinutes;
+        
+        // ≤ 2 ชม. (120 นาที) → 0 วัน, > 2 ชม. → 0.5 วัน
+        setState(() {
+          _totalDays = diffMinutes > 120 ? 0.5 : 0.0;
+        });
+      } else {
+        setState(() {
+          _totalDays = 0.0;
+        });
+      }
+    } else if (_selectedLeaveType == LeaveType.halfDayLeave) {
+      // ลาครึ่งวัน → 0.5 วันเสมอ
       setState(() {
-        _totalDays = _calculateBusinessDays(_startDate!, _endDate!);
+        _totalDays = 0.5;
       });
+    } else {
+      // สำหรับลาป่วยและลากิจ = คำนวณตามวันที่ (เต็มวัน)
+      if (_startDate != null && _endDate != null) {
+        setState(() {
+          _totalDays = _calculateBusinessDays(_startDate!, _endDate!).toDouble();
+        });
+      }
     }
   }
+
+  // สร้างรายการเวลาสำหรับ dropdown (12:00 - 17:30 ทุก 30 นาที)
+  List<TimeOfDay> _getTimeOptions() {
+    final List<TimeOfDay> times = [];
+    for (int hour = 12; hour <= 17; hour++) {
+      for (int minute = 0; minute < 60; minute += 30) {
+        if (hour == 17 && minute > 30) break; // หยุดที่ 17:30
+        times.add(TimeOfDay(hour: hour, minute: minute));
+      }
+    }
+    return times;
+  }
+
+  // แปลง TimeOfDay เป็น String สำหรับแสดงใน dropdown
+  String _formatTimeForDropdown(TimeOfDay time) {
+    final hour = time.hour;
+    final minute = time.minute.toString().padLeft(2, '0');
+    final period = hour >= 12 ? 'PM' : 'AM';
+    final displayHour = hour > 12 ? hour - 12 : (hour == 0 ? 12 : hour);
+    return '$period $displayHour:$minute';
+  }
+
 
   int _calculateBusinessDays(DateTime start, DateTime end) {
     int days = 0;
@@ -56,6 +110,108 @@ class _RequestLeaveScreenState extends State<RequestLeaveScreen> {
     return days;
   }
 
+  Widget _buildTimeSelector() {
+    final timeOptions = _getTimeOptions();
+    final selectedTimeIndex = _earlyLeaveTime != null
+        ? timeOptions.indexWhere((time) =>
+            time.hour == _earlyLeaveTime!.hour &&
+            time.minute == _earlyLeaveTime!.minute)
+        : -1;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey[300]!),
+      ),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<TimeOfDay>(
+          value: _earlyLeaveTime,
+          isExpanded: true,
+          hint: Row(
+            children: [
+              const Icon(Icons.access_time, color: Colors.blue, size: 20),
+              const SizedBox(width: 8),
+              Text(
+                'เลือกเวลาออก',
+                style: TextStyle(
+                  fontSize: 14,
+                  color: Colors.grey[600],
+                ),
+              ),
+            ],
+          ),
+          icon: const Icon(Icons.arrow_drop_down, color: Colors.blue),
+          items: timeOptions.map((TimeOfDay time) {
+            return DropdownMenuItem<TimeOfDay>(
+              value: time,
+              child: Row(
+                children: [
+                  const Icon(Icons.access_time, color: Colors.blue, size: 20),
+                  const SizedBox(width: 8),
+                  Text(
+                    _formatTimeForDropdown(time),
+                    style: const TextStyle(
+                      fontSize: 14,
+                      color: Colors.black87,
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }).toList(),
+          onChanged: (TimeOfDay? newTime) {
+            if (newTime != null) {
+              setState(() {
+                _earlyLeaveTime = newTime;
+                _calculateDays(); // คำนวณใหม่เมื่อเปลี่ยนเวลา
+              });
+            }
+          },
+        ),
+      ),
+    );
+  }
+
+
+  Widget _buildHalfDayChip({
+    required String label,
+    required String value,
+  }) {
+    final bool selected = _halfDaySession == value;
+    return InkWell(
+      onTap: () {
+        setState(() {
+          _halfDaySession = value;
+          _calculateDays(); // คำนวณใหม่เมื่อเปลี่ยนครึ่งวัน
+        });
+      },
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: selected ? Colors.purple[50] : Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: selected ? Colors.purple : Colors.grey[300]!,
+            width: 1.5,
+          ),
+        ),
+        child: Center(
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: selected ? Colors.purple[800] : Colors.grey[700],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Future<void> _selectStartDate() async {
     final DateTime? picked = await showDatePicker(
       context: context,
@@ -68,8 +224,15 @@ class _RequestLeaveScreenState extends State<RequestLeaveScreen> {
     if (picked != null) {
       setState(() {
         _startDate = picked;
-        if (_endDate != null && _endDate!.isBefore(_startDate!)) {
-          _endDate = null;
+        // สำหรับลากลับก่อนและลาครึ่งวัน ตั้ง endDate = startDate
+        if (_selectedLeaveType == LeaveType.earlyLeave || 
+            _selectedLeaveType == LeaveType.halfDayLeave) {
+          _endDate = picked;
+        } else {
+          // สำหรับลาป่วยและลากิจ ตรวจสอบว่า endDate ต้องไม่น้อยกว่า startDate
+          if (_endDate != null && _endDate!.isBefore(_startDate!)) {
+            _endDate = null;
+          }
         }
         _calculateDays();
       });
@@ -262,14 +425,31 @@ class _RequestLeaveScreenState extends State<RequestLeaveScreen> {
       return;
     }
 
-    if (_startDate == null || _endDate == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('กรุณาเลือกวันที่เริ่มต้นและสิ้นสุด'),
-          backgroundColor: Colors.orange,
-        ),
-      );
-      return;
+    // สำหรับลากลับก่อนและลาครึ่งวัน ต้องมีแค่วันที่เดียว
+    if (_selectedLeaveType == LeaveType.earlyLeave || 
+        _selectedLeaveType == LeaveType.halfDayLeave) {
+      if (_startDate == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('กรุณาเลือกวันที่'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+        return;
+      }
+      // ตั้ง endDate = startDate สำหรับลากลับก่อนและลาครึ่งวัน
+      _endDate = _startDate;
+    } else {
+      // สำหรับลาป่วยและลากิจ ต้องมีทั้งวันที่เริ่มต้นและสิ้นสุด
+      if (_startDate == null || _endDate == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('กรุณาเลือกวันที่เริ่มต้นและสิ้นสุด'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+        return;
+      }
     }
 
     // Check if documents are required
@@ -305,18 +485,66 @@ class _RequestLeaveScreenState extends State<RequestLeaveScreen> {
       }
     }
 
+    // ตรวจสอบช่วงเวลาสำหรับลากลับก่อน / ลาครึ่งวัน
+    if (_selectedLeaveType == LeaveType.earlyLeave) {
+      if (_earlyLeaveTime == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('กรุณาเลือกเวลาออก'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+        return;
+      }
+    } else if (_selectedLeaveType == LeaveType.halfDayLeave) {
+      if (_halfDaySession == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('กรุณาเลือกครึ่งวันเช้า หรือ ครึ่งวันบ่าย'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+        return;
+      }
+    }
+
     setState(() {
       _isSubmitting = true;
     });
 
     try {
       final leaveService = Provider.of<LeaveService>(context, listen: false);
+
+      // แนบรายละเอียดช่วงเวลาเข้าไปในเหตุผลการลา (ไม่ต้องแก้ backend)
+      String finalReason = _reasonController.text;
+      if (_selectedLeaveType == LeaveType.earlyLeave) {
+        if (_earlyLeaveTime != null) {
+          final buffer = StringBuffer(finalReason.trim());
+          if (buffer.isNotEmpty) buffer.write('\n');
+          buffer.write('ช่วงเวลา: ออกเวลา ${_earlyLeaveTime!.format(context)}');
+          finalReason = buffer.toString();
+        }
+      } else if (_selectedLeaveType == LeaveType.halfDayLeave) {
+        if (_halfDaySession != null) {
+          final buffer = StringBuffer(finalReason.trim());
+          if (buffer.isNotEmpty) buffer.write('\n');
+          buffer.write('ช่วงเวลา: ');
+          if (_halfDaySession == 'morning') {
+            buffer.write('ครึ่งวันเช้า');
+          } else if (_halfDaySession == 'afternoon') {
+            buffer.write('ครึ่งวันบ่าย');
+          }
+          finalReason = buffer.toString();
+        }
+      }
+
       await leaveService.submitLeaveRequest(
         type: _selectedLeaveType!,
         startDate: _startDate!,
         endDate: _endDate!,
-        reason: _reasonController.text,
+        reason: finalReason,
         documentPaths: _documentPaths,
+        totalDays: _totalDays, // ส่ง totalDays ที่คำนวณแล้ว
       );
 
       if (mounted) {
@@ -392,6 +620,7 @@ class _RequestLeaveScreenState extends State<RequestLeaveScreen> {
                       ),
                     ),
                     const SizedBox(height: 16),
+                    // แถวแรก: ลาป่วย และ ลากิจ
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceAround,
                       children: [
@@ -466,28 +695,75 @@ class _RequestLeaveScreenState extends State<RequestLeaveScreen> {
               const SizedBox(height: 24),
 
               // Date Selection
-              Row(
-                children: [
-                  Expanded(
-                    child: _buildDateSelector(
-                      label: 'วันที่เริ่มต้น',
-                      date: _startDate,
-                      onTap: _selectStartDate,
-                      icon: Icons.calendar_today,
+              // สำหรับลากลับก่อนและลาครึ่งวัน แสดงแค่วันที่เดียว
+              if (_selectedLeaveType == LeaveType.earlyLeave || 
+                  _selectedLeaveType == LeaveType.halfDayLeave)
+                _buildDateSelector(
+                  label: 'วันที่',
+                  date: _startDate,
+                  onTap: _selectStartDate,
+                  icon: Icons.calendar_today,
+                )
+              else
+                Row(
+                  children: [
+                    Expanded(
+                      child: _buildDateSelector(
+                        label: 'วันที่เริ่มต้น',
+                        date: _startDate,
+                        onTap: _selectStartDate,
+                        icon: Icons.calendar_today,
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: _buildDateSelector(
-                      label: 'วันสิ้นสุด',
-                      date: _endDate,
-                      onTap: _selectEndDate,
-                      icon: Icons.event,
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _buildDateSelector(
+                        label: 'วันสิ้นสุด',
+                        date: _endDate,
+                        onTap: _selectEndDate,
+                        icon: Icons.event,
+                      ),
                     ),
-                  ),
-                ],
-              ),
+                  ],
+                ),
               const SizedBox(height: 16),
+
+              // Time / Session for Early Leave & Half Day
+              if (_selectedLeaveType == LeaveType.earlyLeave ||
+                  _selectedLeaveType == LeaveType.halfDayLeave) ...[
+                const Text(
+                  'ช่วงเวลา',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 12),
+
+                if (_selectedLeaveType == LeaveType.earlyLeave) ...[
+                  _buildTimeSelector(),
+                  const SizedBox(height: 16),
+                ] else if (_selectedLeaveType == LeaveType.halfDayLeave) ...[
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _buildHalfDayChip(
+                          label: 'ครึ่งวันเช้า',
+                          value: 'morning',
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: _buildHalfDayChip(
+                          label: 'ครึ่งวันบ่าย',
+                          value: 'afternoon',
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                ],
+              ],
               
               // Total Days
               if (_totalDays > 0)
@@ -506,7 +782,11 @@ class _RequestLeaveScreenState extends State<RequestLeaveScreen> {
                       const Icon(Icons.access_time, color: Colors.green),
                       const SizedBox(width: 8),
                       Text(
-                        'จำนวนวันลา: $_totalDays วัน',
+                        _totalDays == 0.5 
+                          ? 'จำนวนวันลา: ครึ่งวัน (0.5 วัน)'
+                          : _totalDays == 0
+                            ? 'จำนวนวันลา: 0 วัน (ไม่นับวันลา)'
+                            : 'จำนวนวันลา: ${_totalDays.toStringAsFixed(_totalDays.truncateToDouble() == _totalDays ? 0 : 1)} วัน',
                         style: const TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.bold,

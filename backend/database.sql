@@ -125,7 +125,7 @@ CREATE TABLE IF NOT EXISTS attendance (
 CREATE TABLE IF NOT EXISTS leaves (
   id INT AUTO_INCREMENT PRIMARY KEY,
   user_id INT NOT NULL,
-  leave_type ENUM('sick', 'personal', 'vacation', 'other') NOT NULL,
+  leave_type ENUM('sick', 'personal', 'vacation', 'other', 'early', 'half_day') NOT NULL,
   start_date DATE NOT NULL,
   end_date DATE NOT NULL,
   reason TEXT NOT NULL,

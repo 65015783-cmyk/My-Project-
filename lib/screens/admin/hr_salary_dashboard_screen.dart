@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../../services/hr_salary_service.dart';
 import '../../models/salary_history_model.dart';
 import 'package:intl/intl.dart';
+import 'employee_salary_list_screen.dart';
 
 class HrSalaryDashboardScreen extends StatefulWidget {
   const HrSalaryDashboardScreen({super.key});
@@ -48,63 +49,64 @@ class _HrSalaryDashboardScreenState extends State<HrSalaryDashboardScreen> {
       ),
       body: Consumer<HrSalaryService>(
         builder: (context, service, child) {
-          if (service.isLoading && service.summary == null) {
-            return const Center(child: CircularProgressIndicator());
-          }
-
-          if (service.errorMessage != null && service.summary == null) {
-            return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.error_outline, size: 64, color: Colors.red[300]),
-                  const SizedBox(height: 16),
-                  Text(
-                    service.errorMessage!,
-                    style: TextStyle(color: Colors.red[700]),
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 16),
-                  ElevatedButton(
-                    onPressed: () => service.loadAllData(),
-                    child: const Text('ลองอีกครั้ง'),
-                  ),
-                ],
-              ),
-            );
-          }
-
           return RefreshIndicator(
             onRefresh: () => service.refresh(),
             child: SingleChildScrollView(
               physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.symmetric(horizontal: 0, vertical: 16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Summary Cards
-                  if (service.summary != null) _buildSummaryCards(service.summary!),
+                  // Payroll Overview Cards
+                  service.payrollOverview != null
+                      ? _buildPayrollOverviewCards(service.payrollOverview!)
+                      : Container(
+                          margin: const EdgeInsets.symmetric(horizontal: 16),
+                          padding: const EdgeInsets.all(40),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: Column(
+                            children: [
+                              if (service.isLoading)
+                                const CircularProgressIndicator()
+                              else
+                                Column(
+                                  children: [
+                                    Icon(Icons.info_outline, size: 48, color: Colors.grey[400]),
+                                    const SizedBox(height: 16),
+                                    Text(
+                                      'กำลังโหลดข้อมูล...',
+                                      style: TextStyle(color: Colors.grey[600]),
+                                    ),
+                                  ],
+                                ),
+                            ],
+                          ),
+                        ),
                   const SizedBox(height: 24),
                   
                   // Quick Actions
-                  _buildQuickActions(context, service),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: _buildQuickActions(context, service),
+                  ),
                   const SizedBox(height: 24),
                   
                   // Recent Adjustments
                   if (service.recentAdjustments.isNotEmpty) ...[
-                    _buildSectionTitle('การปรับเงินเดือนล่าสุด'),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: _buildSectionTitle('การปรับเงินเดือนล่าสุด'),
+                    ),
                     const SizedBox(height: 12),
-                    _buildRecentAdjustments(service.recentAdjustments),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: _buildRecentAdjustments(service.recentAdjustments),
+                    ),
                     const SizedBox(height: 24),
                   ],
-                  
-                  // Employee List
-                  _buildSectionTitle('รายชื่อพนักงาน'),
-                  const SizedBox(height: 12),
-                  if (service.employees.isEmpty)
-                    _buildEmptyState()
-                  else
-                    _buildEmployeeList(service.employees),
                 ],
               ),
             ),
@@ -114,84 +116,171 @@ class _HrSalaryDashboardScreenState extends State<HrSalaryDashboardScreen> {
     );
   }
 
-  Widget _buildSummaryCards(SalaryDashboardSummary summary) {
+  Widget _buildPayrollOverviewCards(PayrollOverview overview) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          'สรุปภาพรวม',
-          style: TextStyle(
-            fontSize: 20,
-            fontWeight: FontWeight.bold,
-            color: Colors.black87,
+        // Header with padding
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Flexible(
+                child: Text(
+                  'ภาพรวมเงินเดือน (Payroll Overview)',
+                  style: const TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black87,
+                  ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: overview.status.color.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: overview.status.color, width: 1),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      overview.status == PayrollStatus.paid 
+                          ? Icons.check_circle
+                          : overview.status == PayrollStatus.calculated
+                              ? Icons.calculate
+                              : Icons.schedule,
+                      size: 14,
+                      color: overview.status.color,
+                    ),
+                    const SizedBox(width: 4),
+                    Flexible(
+                      child: Text(
+                        overview.status.label,
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: overview.status.color,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 8),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Text(
+            '${overview.monthName} ${overview.year + 543}',
+            style: TextStyle(
+              fontSize: 14,
+              color: Colors.grey[600],
+            ),
           ),
         ),
         const SizedBox(height: 16),
-        // Row 1: Total Employees & Average
-        Row(
+        // Cards in horizontal rows, full width
+        Column(
           children: [
-            Expanded(
-              child: _buildSummaryCard(
-                title: 'จำนวนพนักงาน',
-                value: summary.totalEmployees.toString(),
-                icon: Icons.people,
-                color: Colors.blue,
-              ),
+            // Row 1: Total Gross Salary & Total Employees
+            Row(
+              children: [
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.only(left: 16, right: 6),
+                    child: _buildPayrollCard(
+                      title: 'ยอดเงินเดือนรวมประจำเดือน',
+                      value: overview.totalGrossSalaryFormatted,
+                      icon: Icons.attach_money,
+                      color: const Color(0xFF4CAF50),
+                      emoji: '💰',
+                    ),
+                  ),
+                ),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.only(left: 6, right: 16),
+                    child: InkWell(
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const EmployeeSalaryListScreen(),
+                          ),
+                        );
+                      },
+                      borderRadius: BorderRadius.circular(16),
+                      child: _buildPayrollCard(
+                        title: 'จำนวนพนักงานที่รับเงินเดือน',
+                        value: '${overview.totalEmployees} คน',
+                        icon: Icons.people,
+                        color: const Color(0xFF2196F3),
+                        emoji: '👥',
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: _buildSummaryCard(
-                title: 'เงินเดือนเฉลี่ย',
-                value: summary.averageSalaryFormatted,
-                icon: Icons.attach_money,
-                color: Colors.green,
-              ),
+            const SizedBox(height: 12),
+            // Row 2: Total Deductions & Net Pay
+            Row(
+              children: [
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.only(left: 16, right: 6),
+                    child: _buildPayrollCard(
+                      title: 'ยอดหักรวม',
+                      subtitle: '(ประกันสังคม, ภาษี, สาย/ขาดงาน)',
+                      value: overview.totalDeductionsFormatted,
+                      icon: Icons.trending_down,
+                      color: const Color(0xFFF44336),
+                      emoji: '📉',
+                    ),
+                  ),
+                ),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.only(left: 6, right: 16),
+                    child: _buildPayrollCard(
+                      title: 'ยอดจ่ายสุทธิ',
+                      subtitle: '(Net Pay)',
+                      value: overview.netPayFormatted,
+                      icon: Icons.account_balance_wallet,
+                      color: const Color(0xFF9C27B0),
+                      emoji: '📈',
+                    ),
+                  ),
+                ),
+              ],
             ),
           ],
-        ),
-        const SizedBox(height: 12),
-        // Row 2: Max & Min
-        Row(
-          children: [
-            Expanded(
-              child: _buildSummaryCard(
-                title: 'เงินเดือนสูงสุด',
-                value: summary.maxSalaryFormatted,
-                icon: Icons.trending_up,
-                color: Colors.orange,
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: _buildSummaryCard(
-                title: 'เงินเดือนต่ำสุด',
-                value: summary.minSalaryFormatted,
-                icon: Icons.trending_down,
-                color: Colors.red,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 12),
-        // Adjustment Count
-        _buildSummaryCard(
-          title: 'การปรับเงินเดือน (เดือนนี้)',
-          value: summary.adjustmentsThisMonth.toString(),
-          icon: Icons.swap_horiz,
-          color: Colors.purple,
         ),
       ],
     );
   }
 
-  Widget _buildSummaryCard({
+  Widget _buildPayrollCard({
     required String title,
+    String? subtitle,
     required String value,
     required IconData icon,
     required Color color,
+    required String emoji,
   }) {
     return Container(
-      padding: const EdgeInsets.all(16),
+      height: 200, // เพิ่มความสูงให้ใหญ่ขึ้น
+      padding: const EdgeInsets.all(20), // เพิ่ม padding
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
@@ -205,43 +294,83 @@ class _HrSalaryDashboardScreenState extends State<HrSalaryDashboardScreen> {
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Row(
             children: [
               Container(
-                padding: const EdgeInsets.all(8),
+                padding: const EdgeInsets.all(10), // เพิ่ม padding ของ icon
                 decoration: BoxDecoration(
                   color: color.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: BorderRadius.circular(10),
                 ),
-                child: Icon(icon, color: color, size: 24),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      emoji,
+                      style: const TextStyle(fontSize: 24), // เพิ่มขนาด emoji
+                    ),
+                    const SizedBox(width: 6),
+                    Icon(icon, color: color, size: 24), // เพิ่มขนาด icon
+                  ],
+                ),
               ),
               const Spacer(),
             ],
           ),
-          const SizedBox(height: 12),
-          Text(
-            value,
-            style: TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-              color: color,
+          Flexible(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                Flexible(
+                  child: Text(
+                    value,
+                    style: TextStyle(
+                      fontSize: 26, // เพิ่มขนาดตัวเลข
+                      fontWeight: FontWeight.bold,
+                      color: color,
+                    ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Flexible(
+                  child: Text(
+                    title,
+                    style: TextStyle(
+                      fontSize: 14, // เพิ่มขนาดข้อความ
+                      fontWeight: FontWeight.w600,
+                      color: Colors.grey[800],
+                    ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                if (subtitle != null) ...[
+                  const SizedBox(height: 4),
+                  Flexible(
+                    child: Text(
+                      subtitle,
+                      style: TextStyle(
+                        fontSize: 12, // เพิ่มขนาด subtitle
+                        color: Colors.grey[600],
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ],
             ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            title,
-            style: TextStyle(
-              fontSize: 12,
-              color: Colors.grey[600],
-            ),
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
           ),
         ],
       ),
     );
   }
+
 
   Widget _buildQuickActions(BuildContext context, HrSalaryService service) {
     return Column(
@@ -376,93 +505,6 @@ class _HrSalaryDashboardScreenState extends State<HrSalaryDashboardScreen> {
     );
   }
 
-  Widget _buildEmployeeList(List<EmployeeSalarySummary> employees) {
-    return Column(
-      children: employees.map((employee) {
-        return Card(
-          margin: const EdgeInsets.only(bottom: 12),
-          child: ListTile(
-            leading: CircleAvatar(
-              backgroundColor: _getColorFromName(employee.fullName).withValues(alpha: 0.2),
-              child: Text(
-                employee.fullName.isNotEmpty
-                    ? employee.fullName.substring(0, 1).toUpperCase()
-                    : '?',
-                style: TextStyle(
-                  color: _getColorFromName(employee.fullName),
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
-            title: Text(
-              employee.fullName,
-              style: const TextStyle(fontWeight: FontWeight.bold),
-            ),
-            subtitle: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (employee.position != null)
-                  Text('ตำแหน่ง: ${employee.position}'),
-                if (employee.department != null)
-                  Text('แผนก: ${employee.department}'),
-                const SizedBox(height: 4),
-                Text(
-                  'เงินเดือนปัจจุบัน: ${employee.currentSalaryFormatted}',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w600,
-                    color: Colors.green[700],
-                  ),
-                ),
-              ],
-            ),
-            trailing: Icon(Icons.chevron_right, color: Colors.grey[400]),
-            onTap: () {
-              // TODO: Navigate to employee salary detail
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('ดูรายละเอียด: ${employee.fullName}')),
-              );
-            },
-          ),
-        );
-      }).toList(),
-    );
-  }
 
-  Widget _buildEmptyState() {
-    return Container(
-      padding: const EdgeInsets.all(40),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Column(
-        children: [
-          Icon(Icons.people_outline, size: 64, color: Colors.grey[400]),
-          const SizedBox(height: 16),
-          Text(
-            'ยังไม่มีข้อมูลพนักงาน',
-            style: TextStyle(
-              fontSize: 16,
-              color: Colors.grey[600],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Color _getColorFromName(String name) {
-    if (name.isEmpty) return Colors.grey;
-    final colors = [
-      Colors.blue,
-      Colors.green,
-      Colors.orange,
-      Colors.purple,
-      Colors.teal,
-      Colors.pink,
-      Colors.indigo,
-    ];
-    return colors[name.hashCode % colors.length];
-  }
 }
 
