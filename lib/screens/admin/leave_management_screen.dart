@@ -747,22 +747,24 @@ class _LeaveManagementScreenState extends State<LeaveManagementScreen> with Widg
                       ),
                     ),
                     const SizedBox(width: 8),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: Colors.blue[50],
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: Colors.blue[200]!),
-                      ),
-                      child: Text(
-                        _getDaysLabel(leaveType, reason, totalDays),
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.blue[700],
+                    // แสดง badge จำนวนวันลาเฉพาะประเภทลาปกติ
+                    if (leaveType != 'early' && leaveType != 'half_day')
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: Colors.blue[50],
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.blue[200]!),
+                        ),
+                        child: Text(
+                          _getDaysLabel(leaveType, reason, totalDays),
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.blue[700],
+                          ),
                         ),
                       ),
-                    ),
                   ],
                 ),
                 const SizedBox(height: 12),

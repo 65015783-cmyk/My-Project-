@@ -441,7 +441,7 @@ class _EmployeeSalaryListScreenState extends State<EmployeeSalaryListScreen> {
                   'ข้อมูลเงินเดือน',
                   [
                     _buildDetailRow('เงินเดือนปัจจุบัน', employee.currentSalaryFormatted, Colors.green),
-                    _buildDetailRow('เงินเดือนเริ่มต้น', employee.startingSalaryFormatted, Colors.blue),
+                    _buildDetailRow('เงินฐานเงินเดือน', employee.baseSalaryFormatted, Colors.blue),
                     _buildDetailRow('จำนวนครั้งที่ปรับ', '${employee.adjustmentCount} ครั้ง', Colors.orange),
                     if (employee.lastAdjustmentDate != null)
                       _buildDetailRow(

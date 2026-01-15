@@ -113,6 +113,7 @@ class EmployeeSalarySummary {
   final String? department;
   final double currentSalary;
   final double startingSalary;
+  final double baseSalary;
   final int adjustmentCount;
   final DateTime? lastAdjustmentDate;
   final SalaryHistoryModel? lastAdjustment;
@@ -124,6 +125,7 @@ class EmployeeSalarySummary {
     this.department,
     required this.currentSalary,
     required this.startingSalary,
+    required this.baseSalary,
     required this.adjustmentCount,
     this.lastAdjustmentDate,
     this.lastAdjustment,
@@ -141,6 +143,9 @@ class EmployeeSalarySummary {
       return 0.0;
     }
 
+    // Base salary: use base_salary if provided, otherwise use current_salary
+    final baseSalaryValue = parseSalary(json['base_salary'] ?? json['current_salary']);
+    
     return EmployeeSalarySummary(
       employeeId: json['employee_id'] as int? ?? 
                   int.tryParse(json['employee_id']?.toString() ?? '') ?? 0,
@@ -150,6 +155,7 @@ class EmployeeSalarySummary {
       department: json['department']?.toString(),
       currentSalary: parseSalary(json['current_salary']),
       startingSalary: parseSalary(json['starting_salary']),
+      baseSalary: baseSalaryValue,
       adjustmentCount: json['adjustment_count'] as int? ?? 
                       int.tryParse(json['adjustment_count']?.toString() ?? '0') ?? 0,
       lastAdjustmentDate: json['last_adjustment_date'] != null
@@ -171,6 +177,12 @@ class EmployeeSalarySummary {
   String get startingSalaryFormatted {
     final formatter = NumberFormat('#,###');
     return '${formatter.format(startingSalary)} บาท';
+  }
+
+  /// เงินฐานเงินเดือน (Format)
+  String get baseSalaryFormatted {
+    final formatter = NumberFormat('#,###');
+    return '${formatter.format(baseSalary)} บาท';
   }
 
   /// วันที่ปรับล่าสุด (Format)

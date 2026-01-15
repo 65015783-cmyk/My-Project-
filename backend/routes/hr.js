@@ -133,6 +133,8 @@ router.get('/salary/employees', authenticateToken, requireHR, async (req, res) =
         COALESCE(current_sal.salary_amount, 0) as current_salary,
         -- เงินเดือนแรก (record แรก)
         COALESCE(starting_sal.salary_amount, 0) as starting_salary,
+        -- เงินฐานเงินเดือน (จากตาราง employees)
+        COALESCE(e.base_salary, current_sal.salary_amount, 0) as base_salary,
         -- จำนวนครั้งที่ปรับ (ADJUST)
         COALESCE(adjustment_count.count, 0) as adjustment_count,
         -- วันที่ปรับล่าสุด

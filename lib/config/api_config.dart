@@ -28,6 +28,7 @@ class ApiConfig {
   static String get leaveSummaryUrl => '$baseUrl/api/admin/leave-summary';
   static String get leaveDetailsUrl => '$baseUrl/api/admin/leave-details';
   static String get notificationsUrl => '$baseUrl/api/notifications';
+  static String get dailyAttendanceSummaryUrl => '$baseUrl/api/admin/daily-attendance-summary';
   
   // HR Salary Management Endpoints
   static String get hrSalarySummaryUrl => '$baseUrl/api/hr/salary/summary';

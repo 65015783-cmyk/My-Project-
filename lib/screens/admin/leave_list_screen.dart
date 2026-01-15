@@ -47,22 +47,107 @@ class _LeaveListScreenState extends State<LeaveListScreen> {
 
       print('[Leave List] Loading leaves with status: ${widget.status}');
       
-      // ใช้ API เดียวกันกับ LeaveManagementScreen แต่ filter ตาม status
+      // ใช้ leaveDetailsUrl เพื่อดึงข้อมูลทั้งหมด แล้ว filter ตาม status
+      // หรือใช้ leavePendingUrl สำหรับ pending (ถ้า API รองรับ)
+      String apiUrl;
+      if (widget.status.toLowerCase() == 'pending') {
+        // ลองใช้ leavePendingUrl ก่อน
+        apiUrl = ApiConfig.leavePendingUrl;
+      } else {
+        // สำหรับ approved/rejected ใช้ leaveDetailsUrl
+        apiUrl = ApiConfig.leaveDetailsUrl;
+      }
+      
+      print('[Leave List] Using API: $apiUrl');
+      
       final response = await http.get(
-        Uri.parse(ApiConfig.leavePendingUrl),
+        Uri.parse(apiUrl),
         headers: ApiConfig.headersWithAuth(token),
       );
 
       print('[Leave List] Response status: ${response.statusCode}');
+      print('[Leave List] Response body: ${response.body}');
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body) as Map<String, dynamic>;
-        final allLeaves = data['leaves'] as List<dynamic>? ?? [];
+        List<dynamic> allLeaves = [];
         
-        // Filter leaves ตาม status
-        final filteredLeaves = allLeaves.where((leave) {
-          return leave['status']?.toString().toLowerCase() == widget.status.toLowerCase();
+        // ตรวจสอบรูปแบบข้อมูลที่ API ส่งกลับมา
+        if (data['leaves'] != null) {
+          allLeaves = data['leaves'] as List<dynamic>;
+        } else if (data['data'] != null) {
+          final dataValue = data['data'];
+          if (dataValue is List) {
+            allLeaves = dataValue;
+          }
+        } else if (data['leave_list'] != null) {
+          allLeaves = data['leave_list'] as List<dynamic>;
+        }
+        
+        print('[Leave List] Total leaves from API: ${allLeaves.length}');
+        
+        // Filter leaves ตาม status (ถ้า API ไม่ได้ filter ให้แล้ว)
+        List<dynamic> filteredLeaves = allLeaves.where((leave) {
+          final leaveStatus = leave['status']?.toString().toLowerCase() ?? '';
+          final targetStatus = widget.status.toLowerCase();
+          
+          // รองรับหลายรูปแบบของ status
+          bool matches = false;
+          if (targetStatus == 'pending') {
+            matches = leaveStatus == 'pending' || 
+                     leaveStatus == 'รออนุมัติ' ||
+                     leaveStatus == 'waiting' ||
+                     leaveStatus == 'pending_approval';
+          } else if (targetStatus == 'approved') {
+            matches = leaveStatus == 'approved' || 
+                     leaveStatus == 'อนุมัติ' ||
+                     leaveStatus == 'อนุมัติแล้ว' ||
+                     leaveStatus == 'success' ||
+                     leaveStatus == 'accepted';
+          } else if (targetStatus == 'rejected') {
+            matches = leaveStatus == 'rejected' || 
+                     leaveStatus == 'ไม่อนุมัติ' ||
+                     leaveStatus == 'denied' ||
+                     leaveStatus == 'failed' ||
+                     leaveStatus == 'declined';
+          }
+          
+          return matches;
         }).toList();
+
+        // ถ้าไม่มีข้อมูลและเป็น pending ลองใช้ leaveDetailsUrl
+        if (filteredLeaves.isEmpty && widget.status.toLowerCase() == 'pending' && apiUrl == ApiConfig.leavePendingUrl) {
+          print('[Leave List] No pending leaves found, trying leaveDetailsUrl...');
+          try {
+            final fallbackResponse = await http.get(
+              Uri.parse(ApiConfig.leaveDetailsUrl),
+              headers: ApiConfig.headersWithAuth(token),
+            );
+            
+            if (fallbackResponse.statusCode == 200) {
+              final fallbackData = json.decode(fallbackResponse.body) as Map<String, dynamic>;
+              List<dynamic> fallbackLeaves = [];
+              
+              if (fallbackData['leaves'] != null) {
+                fallbackLeaves = fallbackData['leaves'] as List<dynamic>;
+              } else if (fallbackData['data'] != null) {
+                fallbackLeaves = fallbackData['data'] as List<dynamic>;
+              }
+              
+              filteredLeaves = fallbackLeaves.where((leave) {
+                final leaveStatus = leave['status']?.toString().toLowerCase() ?? '';
+                return leaveStatus == 'pending' || 
+                       leaveStatus == 'รออนุมัติ' ||
+                       leaveStatus == 'waiting' ||
+                       leaveStatus == 'pending_approval';
+              }).toList();
+              
+              print('[Leave List] Found ${filteredLeaves.length} pending leaves from fallback API');
+            }
+          } catch (e) {
+            print('[Leave List] Fallback API error: $e');
+          }
+        }
 
         print('[Leave List] Found ${filteredLeaves.length} leaves with status ${widget.status}');
         
