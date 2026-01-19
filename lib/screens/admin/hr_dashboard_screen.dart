@@ -47,20 +47,25 @@ class _HRDashboardScreenState extends State<HRDashboardScreen> {
   @override
   void initState() {
     super.initState();
-    _loadLeaveSummary();
-    _loadDailySummary();
+    // ใช้ addPostFrameCallback เพื่อไม่ให้บล็อก UI ระหว่าง initState
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadLeaveSummary();
+      _loadDailySummary();
+    });
 
     // ตั้งให้หน้าสรุปรายวันอัปเดตตามวันปัจจุบันแบบวันต่อวัน
     _autoTodayTimer = Timer.periodic(const Duration(minutes: 5), (_) {
-      if (!_autoUpdateToToday) return;
+      if (!mounted || !_autoUpdateToToday) return;
 
       final now = DateTime.now();
       // ถ้าวันเปลี่ยนจากวันที่ที่กำลังแสดงอยู่ ให้เปลี่ยนเป็นวันนี้และโหลดข้อมูลใหม่
       if (!DateUtils.isSameDay(_selectedDate, now)) {
-        setState(() {
-          _selectedDate = DateTime(now.year, now.month, now.day);
-        });
-        _loadDailySummary();
+        if (mounted) {
+          setState(() {
+            _selectedDate = DateTime(now.year, now.month, now.day);
+          });
+          _loadDailySummary();
+        }
       }
     });
   }
@@ -95,13 +100,15 @@ class _HRDashboardScreenState extends State<HRDashboardScreen> {
         final data = json.decode(response.body) as Map<String, dynamic>;
         print('[HR Dashboard] Parsed data: $data');
         
-        setState(() {
-          _summaryData = data;
-          _employeeSummary = data['summary'] as List<dynamic>?;
-          _totals = data['totals'] as Map<String, dynamic>?;
-          _currentYear = data['year'] as int? ?? DateTime.now().year;
-          _isLoading = false;
-        });
+        if (mounted) {
+          setState(() {
+            _summaryData = data;
+            _employeeSummary = data['summary'] as List<dynamic>?;
+            _totals = data['totals'] as Map<String, dynamic>?;
+            _currentYear = data['year'] as int? ?? DateTime.now().year;
+            _isLoading = false;
+          });
+        }
         
         print('[HR Dashboard] Employee summary count: ${_employeeSummary?.length ?? 0}');
         print('[HR Dashboard] Totals: $_totals');
@@ -109,11 +116,10 @@ class _HRDashboardScreenState extends State<HRDashboardScreen> {
         final errorData = json.decode(response.body) as Map<String, dynamic>?;
         final errorMessage = errorData?['message'] ?? 'ไม่สามารถโหลดข้อมูลได้';
         
-        setState(() {
-          _isLoading = false;
-        });
-        
         if (mounted) {
+          setState(() {
+            _isLoading = false;
+          });
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text('$errorMessage (Status: ${response.statusCode})'),
@@ -141,6 +147,8 @@ class _HRDashboardScreenState extends State<HRDashboardScreen> {
   }
 
   Future<void> _loadDailySummary() async {
+    if (!mounted) return;
+    
     setState(() {
       _isLoadingDaily = true;
     });
@@ -150,10 +158,10 @@ class _HRDashboardScreenState extends State<HRDashboardScreen> {
       final token = prefs.getString('auth_token');
 
       if (token == null) {
-        setState(() {
-          _isLoadingDaily = false;
-        });
         if (mounted) {
+          setState(() {
+            _isLoadingDaily = false;
+          });
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
               content: Text('กรุณาเข้าสู่ระบบก่อน'),
@@ -172,6 +180,11 @@ class _HRDashboardScreenState extends State<HRDashboardScreen> {
       final summaryResponse = await http.get(
         Uri.parse(summaryUrl),
         headers: ApiConfig.headersWithAuth(token),
+      ).timeout(
+        const Duration(seconds: 15),
+        onTimeout: () {
+          throw TimeoutException('การดึงข้อมูล daily summary ใช้เวลานานเกินไป');
+        },
       );
 
       print('[HR Dashboard] Daily summary response status: ${summaryResponse.statusCode}');
@@ -190,13 +203,11 @@ class _HRDashboardScreenState extends State<HRDashboardScreen> {
       
     } catch (e) {
       print('Error loading daily summary: $e');
-      final dateStr = '${_selectedDate.year}-${_selectedDate.month.toString().padLeft(2, '0')}-${_selectedDate.day.toString().padLeft(2, '0')}';
-      setState(() {
-        _dailySummary = null;
-        _isLoadingDaily = false;
-      });
-      
       if (mounted) {
+        setState(() {
+          _dailySummary = null;
+          _isLoadingDaily = false;
+        });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('ไม่สามารถโหลดข้อมูลได้: ${e.toString()}'),
@@ -210,11 +221,20 @@ class _HRDashboardScreenState extends State<HRDashboardScreen> {
 
   Future<void> _calculateDailySummaryFromRawData(String dateStr, String token, [Map<String, dynamic>? summaryData]) async {
     try {
-      // ใช้ข้อมูลจาก summaryData ถ้ามี (สำหรับ total_employees, attended, on_leave, absent)
-      // แต่คำนวณ late เองเสมอจากข้อมูลดิบเพื่อให้แน่ใจว่าถูกต้อง
-      final totalEmployees = summaryData != null
-          ? (_parseInt(summaryData['total_employees']) ?? _parseInt(summaryData['totalEmployees']) ?? _parseInt(_totals?['total_employees']) ?? 0)
+      // ใช้ข้อมูลจาก summaryData/_totals เป็นค่าอ้างอิง แต่ให้ "จำนวนพนักงานทั้งหมด"
+      // อิงจากจำนวน record ใน _employeeSummary เป็นหลัก (รวม Manager ด้วย)
+      int totalEmployeesFromApi = summaryData != null
+          ? (_parseInt(summaryData['total_employees']) ??
+              _parseInt(summaryData['totalEmployees']) ??
+              _parseInt(_totals?['total_employees']) ??
+              0)
           : (_parseInt(_totals?['total_employees']) ?? 0);
+
+      // ถ้ามี _employeeSummary ให้ใช้ความยาว list นี้แทน (ถือว่าเป็นจำนวนพนักงานจริงทั้งหมดในระบบ
+      // รวมทั้ง Manager และตำแหน่งอื่น ๆ)
+      final totalEmployees = _employeeSummary != null && _employeeSummary!.isNotEmpty
+          ? _employeeSummary!.length
+          : totalEmployeesFromApi;
       
       // เคลียร์รายละเอียดเดิมก่อนคำนวณใหม่
       _dailyPresentDetails = [];
@@ -227,6 +247,11 @@ class _HRDashboardScreenState extends State<HRDashboardScreen> {
       final attendanceResponse = await http.get(
         Uri.parse(attendanceUrl),
         headers: ApiConfig.headersWithAuth(token),
+      ).timeout(
+        const Duration(seconds: 30),
+        onTimeout: () {
+          throw TimeoutException('การดึงข้อมูล attendance ใช้เวลานานเกินไป');
+        },
       );
       
       // ดึงข้อมูลลา - ใช้ leave details API
@@ -234,7 +259,25 @@ class _HRDashboardScreenState extends State<HRDashboardScreen> {
       final leaveResponse = await http.get(
         Uri.parse(leaveDetailsUrl),
         headers: ApiConfig.headersWithAuth(token),
+      ).timeout(
+        const Duration(seconds: 30),
+        onTimeout: () {
+          throw TimeoutException('การดึงข้อมูล leave ใช้เวลานานเกินไป');
+        },
       );
+
+      // DEBUG: log ผลลัพธ์จาก leave details API
+      try {
+        print(
+            '[HR Dashboard] Leave details response status: ${leaveResponse.statusCode}');
+        final bodyPreview = leaveResponse.body.length > 500
+            ? '${leaveResponse.body.substring(0, 500)}...'
+            : leaveResponse.body;
+        print('[HR Dashboard] Leave details response body (preview): '
+            '$bodyPreview');
+      } catch (_) {
+        // ignore logging error
+      }
 
       int late = 0;
       Set<String> attendedUserIds = {};
@@ -248,6 +291,8 @@ class _HRDashboardScreenState extends State<HRDashboardScreen> {
             : (leaveData['leaves'] as List<dynamic>? ?? 
                leaveData['leave_list'] as List<dynamic>? ?? 
                leaveData['data'] as List<dynamic>? ?? []);
+
+        print('[HR Dashboard] Parsed leave list count: ${leaveList.length}');
         
         for (var leave in leaveList) {
           final startDate = leave['start_date']?.toString() ?? 
@@ -258,42 +303,93 @@ class _HRDashboardScreenState extends State<HRDashboardScreen> {
                          leave['end_date_time']?.toString();
           final status = leave['status']?.toString() ?? '';
           
-          // ตรวจสอบเฉพาะ leave ที่อนุมัติแล้ว
-          if (startDate != null && endDate != null && 
-              (status.toLowerCase() == 'approved' || status.toLowerCase() == 'อนุมัติ')) {
+          // ตรวจสอบเฉพาะใบลาที่ "ถือว่ายังมีผลในวันนี้"
+          // เดิมนับเฉพาะที่อนุมัติแล้ว (approved) → ทำให้คนที่ลาวันนี้แต่รออนุมัติไม่ถูกนับ
+          // ปรับให้รวมสถานะ pending ด้วย (pending, รออนุมัติ, pending_approval)
+          if (startDate != null && endDate != null) {
+            final statusLower = status.toLowerCase().trim();
+
+            // รองรับสถานะทุกรูปแบบ ทั้งเต็มวัน/ครึ่งวัน โดยดูจากการมีคำว่า approved / pending / อนุมัติ / รออนุมัติ
+            final isApproved = statusLower == 'approved' ||
+                statusLower == 'อนุมัติ' ||
+                statusLower.startsWith('approved') ||
+                statusLower.startsWith('อนุมัติ') ||
+                statusLower.contains('approved') ||
+                statusLower.contains('อนุมัติ');
+
+            final isPending = statusLower == 'pending' ||
+                statusLower == 'รออนุมัติ' ||
+                statusLower == 'pending_approval' ||
+                statusLower.startsWith('pending') ||
+                statusLower.contains('pending') ||
+                statusLower.contains('รออนุมัติ');
+
+            // ถ้าเป็น reject/ปฏิเสธ ให้ตัดออกแน่นอน
+            final isRejected = statusLower.contains('reject') ||
+                statusLower.contains('ปฏิเสธ');
+
+            // ถ้าไม่ใช่ approved หรือ pending (หรือเป็น rejected) ให้ข้าม
+            if (isRejected || !(isApproved || isPending)) {
+              continue;
+            }
+
             try {
-              final start = DateTime.parse(startDate.split(' ')[0].split('T')[0]);
-              final end = DateTime.parse(endDate.split(' ')[0].split('T')[0]);
-              final selected = DateTime.parse(dateStr);
-              
-              // ตรวจสอบว่า selected date อยู่ในช่วงวันลาหรือไม่
-              if ((selected.isAfter(start.subtract(const Duration(days: 1))) && 
-                   selected.isBefore(end.add(const Duration(days: 1)))) ||
-                  (selected.year == start.year && selected.month == start.month && selected.day == start.day) ||
-                  (selected.year == end.year && selected.month == end.month && selected.day == end.day)) {
-                final userId = leave['user_id']?.toString() ?? 
-                              leave['employee_id']?.toString() ?? 
-                              leave['userId']?.toString() ??
-                              leave['user']?.toString();
+              // แปลง start/end ให้เป็น "วันที่ตามเวลาเครื่อง" เพื่อรองรับค่าแบบ ISO8601 + Z จาก DB
+              final start = _parseLocalDateOnly(startDate);
+              final end = _parseLocalDateOnly(endDate);
+              final selected = DateTime.parse(dateStr); // YYYY-MM-DD (local)
+
+              if (start == null || end == null) {
+                print(
+                    '[HR Dashboard] Skip leave because start/end cannot be parsed. start=$startDate, end=$endDate');
+                continue;
+              }
+
+              // ตรวจสอบว่า selected date อยู่ในช่วงวันลาหรือไม่ (รวมทั้งกรณีวันเดียว)
+              final bool isInRange = !selected.isBefore(start) &&
+                  !selected.isAfter(end);
+
+              if (isInRange) {
+                final userId = leave['user_id']?.toString() ??
+                    leave['employee_id']?.toString() ??
+                    leave['userId']?.toString() ??
+                    leave['user']?.toString();
+
                 if (userId != null) {
                   leaveUserIds.add(userId);
 
-                  // เก็บรายละเอียดคนลาสำหรับหน้ารายการ
-                  final empInfo = _employeeSummary?.firstWhere(
-                    (e) =>
-                        (e['user_id']?.toString() ?? e['employee_id']?.toString() ?? e['id']?.toString()) ==
-                        userId,
-                    orElse: () => null,
+                  // เก็บรายละเอียด "หนึ่ง record ต่อ 1 คน" สำหรับหน้ารายการ
+                  // ถ้ามี userId นี้แล้ว ไม่ต้องเพิ่มซ้ำ เพื่อตัวเลขให้ตรงกับจำนวนคนที่ลา
+                  final alreadyExists = _dailyLeaveDetails.any(
+                    (e) => e['userId']?.toString() == userId,
                   );
 
-                  _dailyLeaveDetails.add({
-                    'userId': userId,
-                    'name': empInfo != null
-                        ? (empInfo['full_name']?.toString() ?? empInfo['name']?.toString() ?? 'ไม่ทราบชื่อ')
-                        : (leave['employee_name']?.toString() ?? 'ไม่ทราบชื่อ'),
-                    'department': empInfo != null ? (empInfo['department']?.toString() ?? '-') : '-',
-                    'status': status,
-                  });
+                  if (!alreadyExists) {
+                    final empInfo = _employeeSummary?.firstWhere(
+                      (e) =>
+                          (e['user_id']?.toString() ??
+                                  e['employee_id']?.toString() ??
+                                  e['id']?.toString()) ==
+                          userId,
+                      orElse: () => null,
+                    );
+
+                    _dailyLeaveDetails.add({
+                      'userId': userId,
+                      'name': empInfo != null
+                          ? (empInfo['full_name']?.toString() ??
+                              empInfo['name']?.toString() ??
+                              'ไม่ทราบชื่อ')
+                          : (leave['employee_name']?.toString() ?? 'ไม่ทราบชื่อ'),
+                      'department': empInfo != null
+                          ? (empInfo['department']?.toString() ?? '-')
+                          : '-',
+                      'status': status,
+                    });
+                  }
+
+                  print(
+                      '[HR Dashboard] Counted leave for userId=$userId, status=$status (start=$startDate, end=$endDate, selected=$dateStr)');
                 }
               }
             } catch (e) {
@@ -384,14 +480,17 @@ class _HRDashboardScreenState extends State<HRDashboardScreen> {
                     } else {
                       // รูปแบบเวลาเท่านั้น (เช่น 15:03:59) - ใช้เวลาปัจจุบันเป็นวันที่
                       final timeParts = checkInTime.split(':');
+                      if (timeParts.isEmpty || timeParts[0].isEmpty) {
+                        throw FormatException('Invalid time format: $checkInTime');
+                      }
                       final now = DateTime.now();
                       checkInDateTime = DateTime(
                         now.year,
                         now.month,
                         now.day,
-                        int.parse(timeParts[0]),
-                        timeParts.length > 1 ? int.parse(timeParts[1]) : 0,
-                        timeParts.length > 2 ? int.parse(timeParts[2].split('.')[0]) : 0,
+                        int.tryParse(timeParts[0]) ?? 0,
+                        timeParts.length > 1 ? (int.tryParse(timeParts[1]) ?? 0) : 0,
+                        timeParts.length > 2 ? (int.tryParse(timeParts[2].split('.')[0]) ?? 0) : 0,
                       );
                     }
 
@@ -406,13 +505,18 @@ class _HRDashboardScreenState extends State<HRDashboardScreen> {
 
                     final isLate = totalSeconds > lateThresholdSeconds;
 
-                    // หา info พนักงานจาก summary เพื่อใช้ชื่อ/แผนก
-                    final empInfo = _employeeSummary?.firstWhere(
-                      (e) =>
-                          (e['user_id']?.toString() ?? e['employee_id']?.toString() ?? e['id']?.toString()) ==
-                          userId,
-                      orElse: () => null,
-                    );
+                    // หา info พนักงานจาก summary เพื่อใช้ชื่อ/แผนก (ใช้ try-catch เพื่อป้องกัน exception)
+                    Map<String, dynamic>? empInfo;
+                    try {
+                      empInfo = _employeeSummary?.firstWhere(
+                        (e) =>
+                            (e['user_id']?.toString() ?? e['employee_id']?.toString() ?? e['id']?.toString()) ==
+                            userId,
+                      ) as Map<String, dynamic>?;
+                    } catch (e) {
+                      // ไม่เจอข้อมูลพนักงาน ไม่เป็นไร ใช้ข้อมูลจาก attendance แทน
+                      empInfo = null;
+                    }
 
                     final displayName = empInfo != null
                         ? (empInfo['full_name']?.toString() ?? empInfo['name']?.toString() ?? 'ไม่ทราบชื่อ')
@@ -478,28 +582,29 @@ class _HRDashboardScreenState extends State<HRDashboardScreen> {
       final calculatedOnLeave = leaveUserIds.length;
       final calculatedAbsent = totalEmployees - calculatedAttended - calculatedOnLeave;
 
-      setState(() {
-        _dailySummary = {
-          'date': dateStr,
-          'total_employees': totalEmployees,
-          'attended': calculatedAttended,
-          'late': late, // ใช้ late ที่คำนวณเองเสมอ
-          'on_leave': calculatedOnLeave,
-          'absent': calculatedAbsent > 0 ? calculatedAbsent : 0,
-        };
-        _isLoadingDaily = false;
-      });
+      if (mounted) {
+        setState(() {
+          _dailySummary = {
+            'date': dateStr,
+            'total_employees': totalEmployees,
+            'attended': calculatedAttended,
+            'late': late, // ใช้ late ที่คำนวณเองเสมอ
+            'on_leave': calculatedOnLeave,
+            'absent': calculatedAbsent > 0 ? calculatedAbsent : 0,
+          };
+          _isLoadingDaily = false;
+        });
+      }
       
       print('[HR Dashboard] Final summary: attended=$calculatedAttended, late=$late (calculated from raw data), onLeave=$calculatedOnLeave, absent=$calculatedAbsent');
       
     } catch (e) {
       print('Error calculating daily summary: $e');
-      setState(() {
-        _dailySummary = null;
-        _isLoadingDaily = false;
-      });
-      
       if (mounted) {
+        setState(() {
+          _dailySummary = null;
+          _isLoadingDaily = false;
+        });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('ไม่สามารถคำนวณข้อมูลได้: ${e.toString()}'),
@@ -560,6 +665,34 @@ class _HRDashboardScreenState extends State<HRDashboardScreen> {
     }
     if (value is double) return value.toInt();
     return 0;
+  }
+
+  /// แปลง string วันที่ (รองรับทั้ง 'YYYY-MM-DD', 'YYYY-MM-DD HH:mm:ss',
+  /// และ ISO 8601 เช่น '2026-01-18T17:00:00.000Z') ให้เป็นวันที่ตามเวลาเครื่อง (local)
+  /// และคืนค่าเฉพาะส่วนวันที่ (year-month-day)
+  DateTime? _parseLocalDateOnly(String? raw) {
+    if (raw == null || raw.isEmpty) return null;
+
+    try {
+      String s = raw.trim();
+
+      // ตัดส่วนเวลาที่ตามหลัง space ออกก่อน (ถ้ามี)
+      if (s.contains(' ')) {
+        s = s.split(' ')[0];
+      }
+
+      DateTime dt;
+      if (s.contains('T')) {
+        // ISO8601 → แปลงเป็น local ก่อนแล้วค่อยตัดเฉพาะวันที่
+        dt = DateTime.parse(s).toLocal();
+      } else {
+        dt = DateTime.parse(s);
+      }
+
+      return DateTime(dt.year, dt.month, dt.day);
+    } catch (_) {
+      return null;
+    }
   }
 
   Widget _buildSummaryScreen() {
@@ -1030,7 +1163,10 @@ class _HRDashboardScreenState extends State<HRDashboardScreen> {
   }
 
   Widget _buildClickableSummaryCards(Map<String, dynamic> totals) {
-    final totalEmployees = _parseInt(totals['total_employees']) ?? 0;
+    // จำนวนพนักงานทั้งหมด: ถ้ามี employeeSummary ให้ใช้ length (รวม Manager ด้วย)
+    final totalEmployees = _employeeSummary != null && _employeeSummary!.isNotEmpty
+        ? _employeeSummary!.length
+        : (_parseInt(totals['total_employees']) ?? 0);
     final totalApproved = _parseInt(totals['total_approved_days']) ?? 0;
     final totalPending = _parseInt(totals['total_pending_days']) ?? 0;
     final totalRejected = _parseInt(totals['total_rejected_days']) ?? 0;
@@ -1183,7 +1319,10 @@ class _HRDashboardScreenState extends State<HRDashboardScreen> {
   }
 
   Widget _buildSummaryCards(Map<String, dynamic> totals) {
-    final totalEmployees = _parseInt(totals['total_employees']) ?? 0;
+    // จำนวนพนักงานทั้งหมด: ถ้ามี employeeSummary ให้ใช้ length (รวม Manager ด้วย)
+    final totalEmployees = _employeeSummary != null && _employeeSummary!.isNotEmpty
+        ? _employeeSummary!.length
+        : (_parseInt(totals['total_employees']) ?? 0);
     final totalApproved = _parseInt(totals['total_approved_days']) ?? 0;
     final totalPending = _parseInt(totals['total_pending_days']) ?? 0;
     final totalRejected = _parseInt(totals['total_rejected_days']) ?? 0;
@@ -2012,11 +2151,13 @@ class _HRDashboardScreenState extends State<HRDashboardScreen> {
   }
 
   Widget _buildDailySummaryCards() {
-    final totalEmployees = _parseInt(_dailySummary!['total_employees']) ?? 0;
     final attended = _parseInt(_dailySummary!['attended']) ?? 0;
     final late = _parseInt(_dailySummary!['late']) ?? 0;
     final onLeave = _parseInt(_dailySummary!['on_leave']) ?? 0;
     final absent = _parseInt(_dailySummary!['absent']) ?? 0;
+    // "มา" และ "มาสาย" นับเป็นอันเดียวกัน (ไม่นับซ้ำ)
+    // "รวมทั้งหมด" = มา + ลา + ขาด (ไม่รวมมาสายซ้ำ)
+    final totalEmployees = attended + onLeave + absent;
 
     return Column(
       children: [
@@ -2193,19 +2334,29 @@ class _HRDashboardScreenState extends State<HRDashboardScreen> {
       csvBuffer.writeln('ประเภท,จำนวน (คน)');
       
       // Data
-      csvBuffer.writeln('มา,${_parseInt(_dailySummary!['attended']) ?? 0}');
-      csvBuffer.writeln('มาสาย,${_parseInt(_dailySummary!['late']) ?? 0}');
-      csvBuffer.writeln('ลา,${_parseInt(_dailySummary!['on_leave']) ?? 0}');
-      csvBuffer.writeln('ขาด,${_parseInt(_dailySummary!['absent']) ?? 0}');
-      csvBuffer.writeln('รวมทั้งหมด,${_parseInt(_dailySummary!['total_employees']) ?? 0}');
+      final attended = _parseInt(_dailySummary!['attended']) ?? 0;
+      final late = _parseInt(_dailySummary!['late']) ?? 0;
+      final onLeave = _parseInt(_dailySummary!['on_leave']) ?? 0;
+      final absent = _parseInt(_dailySummary!['absent']) ?? 0;
+      
+      // "มา" และ "มาสาย" นับเป็นอันเดียวกัน (ไม่นับซ้ำ)
+      // "รวมทั้งหมด" = มา + ลา + ขาด (ไม่รวมมาสายซ้ำ)
+      final totalEmployees = attended + onLeave + absent;
 
-      // Save CSV file
+      csvBuffer.writeln('มา,$attended');
+      csvBuffer.writeln('มาสาย,$late');
+      csvBuffer.writeln('ลา,$onLeave');
+      csvBuffer.writeln('ขาด,$absent');
+      csvBuffer.writeln('รวมทั้งหมด (จำนวนพนักงานทั้งหมด),$totalEmployees');
+
+      // Save CSV file (UTF-8 with BOM เพื่อให้ Excel/Google Sheets อ่านภาษาไทยได้ถูกต้อง)
       final output = await getTemporaryDirectory();
       final now = DateTime.now();
       final fileName = 'รายงานสรุปการเข้างานรายวัน_${dateStr.replaceAll('-', '')}_${now.millisecondsSinceEpoch}.csv';
       final filePath = '${output.path}/$fileName';
       final file = File(filePath);
-      await file.writeAsBytes(csvBuffer.toString().codeUnits);
+      final csvContentWithBom = '\uFEFF${csvBuffer.toString()}';
+      await file.writeAsBytes(utf8.encode(csvContentWithBom));
 
       // Share or open file
       await Share.shareXFiles(
@@ -2252,6 +2403,7 @@ class _HRDashboardScreenState extends State<HRDashboardScreen> {
         break;
       case 'present':
       default:
+        // "มา" แสดงแค่คนที่มาไม่มาสาย (ไม่รวมมาสายซ้ำ)
         title = 'รายชื่อพนักงานที่มา';
         items = _dailyPresentDetails;
         break;
@@ -2384,45 +2536,72 @@ class _HRDashboardScreenState extends State<HRDashboardScreen> {
       
       // สร้าง Excel workbook
       final excel = Excel.createExcel();
-      excel.delete('Sheet1');
-      final sheet = excel['สรุปการเข้างานรายวัน'];
-
-      // Header
-      sheet.appendRow([TextCellValue('รายงานสรุปการเข้างานรายวัน')]);
-      sheet.appendRow([TextCellValue('วันที่'), TextCellValue(dateStr)]);
-      sheet.appendRow([]);
-      sheet.appendRow([TextCellValue('ประเภท'), TextCellValue('จำนวน (คน)')]);
+      
+      // ใช้ Sheet1 ที่สร้างอัตโนมัติ (ไม่ต้องลบ)
+      final sheet = excel.tables['Sheet1'];
+      
+      if (sheet == null) {
+        throw Exception('ไม่สามารถสร้าง Excel sheet ได้');
+      }
 
       // Data
-      sheet.appendRow([
-        TextCellValue('มา'),
-        IntCellValue(_parseInt(_dailySummary!['attended']) ?? 0),
-      ]);
-      sheet.appendRow([
-        TextCellValue('มาสาย'),
-        IntCellValue(_parseInt(_dailySummary!['late']) ?? 0),
-      ]);
-      sheet.appendRow([
-        TextCellValue('ลา'),
-        IntCellValue(_parseInt(_dailySummary!['on_leave']) ?? 0),
-      ]);
-      sheet.appendRow([
-        TextCellValue('ขาด'),
-        IntCellValue(_parseInt(_dailySummary!['absent']) ?? 0),
-      ]);
-      sheet.appendRow([
-        TextCellValue('รวมทั้งหมด'),
-        IntCellValue(_parseInt(_dailySummary!['total_employees']) ?? 0),
-      ]);
+      final attended = _parseInt(_dailySummary!['attended']) ?? 0;
+      final late = _parseInt(_dailySummary!['late']) ?? 0;
+      final onLeave = _parseInt(_dailySummary!['on_leave']) ?? 0;
+      final absent = _parseInt(_dailySummary!['absent']) ?? 0;
 
-      // Style header
-      final headerStyle = CellStyle(
-        bold: true,
-        backgroundColorHex: ExcelColor.fromHexString('#E0E0E0'),
-        horizontalAlign: HorizontalAlign.Center,
-      );
-      sheet.cell(CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: 3)).cellStyle = headerStyle;
-      sheet.cell(CellIndex.indexByColumnRow(columnIndex: 1, rowIndex: 3)).cellStyle = headerStyle;
+      // "มา" และ "มาสาย" นับเป็นอันเดียวกัน (ไม่นับซ้ำ)
+      // "รวมทั้งหมด" = มา + ลา + ขาด (ไม่รวมมาสายซ้ำ)
+      final totalEmployees = attended + onLeave + absent;
+
+      // เขียนข้อมูลโดยตรงผ่าน cell index เพื่อให้แน่ใจว่าข้อมูลถูกเขียน
+      // Row 0: Title
+      sheet.cell(CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: 0)).value = TextCellValue('รายงานสรุปการเข้างานรายวัน');
+      
+      // Row 1: Date
+      sheet.cell(CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: 1)).value = TextCellValue('วันที่');
+      sheet.cell(CellIndex.indexByColumnRow(columnIndex: 1, rowIndex: 1)).value = TextCellValue(dateStr);
+      
+      // Row 3: Header
+      sheet.cell(CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: 3)).value = TextCellValue('ประเภท');
+      sheet.cell(CellIndex.indexByColumnRow(columnIndex: 1, rowIndex: 3)).value = TextCellValue('จำนวน (คน)');
+      
+      // Row 4-8: Data
+      sheet.cell(CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: 4)).value = TextCellValue('มา');
+      sheet.cell(CellIndex.indexByColumnRow(columnIndex: 1, rowIndex: 4)).value = IntCellValue(attended);
+      
+      sheet.cell(CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: 5)).value = TextCellValue('มาสาย');
+      sheet.cell(CellIndex.indexByColumnRow(columnIndex: 1, rowIndex: 5)).value = IntCellValue(late);
+      
+      sheet.cell(CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: 6)).value = TextCellValue('ลา');
+      sheet.cell(CellIndex.indexByColumnRow(columnIndex: 1, rowIndex: 6)).value = IntCellValue(onLeave);
+      
+      sheet.cell(CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: 7)).value = TextCellValue('ขาด');
+      sheet.cell(CellIndex.indexByColumnRow(columnIndex: 1, rowIndex: 7)).value = IntCellValue(absent);
+      
+      sheet.cell(CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: 8)).value = TextCellValue('รวมทั้งหมด');
+      sheet.cell(CellIndex.indexByColumnRow(columnIndex: 1, rowIndex: 8)).value = IntCellValue(totalEmployees);
+      
+      // Debug: ตรวจสอบจำนวนแถวที่เขียน
+      print('[Excel Export] Data written: attended=$attended, late=$late, onLeave=$onLeave, absent=$absent, total=$totalEmployees');
+
+      // Style header (row index 3 คือแถว "ประเภท, จำนวน (คน)")
+      try {
+        final headerStyle = CellStyle(
+          bold: true,
+          backgroundColorHex: ExcelColor.fromHexString('#E0E0E0'),
+          horizontalAlign: HorizontalAlign.Center,
+        );
+        final headerRow = sheet.row(3);
+        if (headerRow != null) {
+          final cell0 = sheet.cell(CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: 3));
+          final cell1 = sheet.cell(CellIndex.indexByColumnRow(columnIndex: 1, rowIndex: 3));
+          cell0.cellStyle = headerStyle;
+          cell1.cellStyle = headerStyle;
+        }
+      } catch (e) {
+        print('Error applying header style: $e');
+      }
 
       // Save Excel file
       final output = await getTemporaryDirectory();
@@ -2431,9 +2610,12 @@ class _HRDashboardScreenState extends State<HRDashboardScreen> {
       final filePath = '${output.path}/$fileName';
       
       final fileBytes = excel.save();
-      if (fileBytes != null) {
+      if (fileBytes != null && fileBytes.isNotEmpty) {
         final file = File(filePath);
         await file.writeAsBytes(fileBytes);
+        
+        // Debug: ตรวจสอบขนาดไฟล์
+        print('[Excel Export] File saved: $filePath, size: ${fileBytes.length} bytes');
 
         await Share.shareXFiles(
           [XFile(file.path, mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')],
@@ -3218,13 +3400,14 @@ class _HRDashboardScreenState extends State<HRDashboardScreen> {
         );
       }
 
-      // Save CSV file
+      // Save CSV file (UTF-8 with BOM เพื่อให้ Excel/Google Sheets อ่านภาษาไทยได้ถูกต้อง)
       final output = await getTemporaryDirectory();
       final now = DateTime.now();
       final fileName = 'รายงานข้อมูลวันลา_${now.millisecondsSinceEpoch}.csv';
       final filePath = '${output.path}/$fileName';
       final file = File(filePath);
-      await file.writeAsBytes(csvBuffer.toString().codeUnits);
+      final csvContentWithBom = '\uFEFF${csvBuffer.toString()}';
+      await file.writeAsBytes(utf8.encode(csvContentWithBom));
 
       // Share or open file
       await Share.shareXFiles(

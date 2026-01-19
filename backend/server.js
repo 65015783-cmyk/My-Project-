@@ -22,6 +22,7 @@ const profileRoutes = require('./routes/profile');
 const adminRoutes = require('./routes/admin');
 const notificationsRoutes = require('./routes/notifications');
 const hrRoutes = require('./routes/hr');
+const salaryRoutes = require('./routes/salary');
 
 // Use Routes
 app.use('/api', authRoutes);
@@ -32,6 +33,7 @@ app.use('/api/profile', profileRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/notifications', notificationsRoutes);
 app.use('/api/hr', hrRoutes);
+app.use('/api/salary', salaryRoutes);
 
 // Health Check
 app.get('/api/health', (req, res) => {

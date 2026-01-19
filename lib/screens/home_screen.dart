@@ -24,8 +24,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    // ไม่โหลด attendance เมื่อเปิดหน้า
-    // จะแสดงเวลาเฉพาะเมื่อมีการ check-in/check-out แล้ว
+    // โหลด attendance วันนี้ทันทีเมื่อเปิดหน้า
+    // เพื่อให้แสดงเวลาเข้างาน/ออกงานที่มีอยู่ในระบบหลังบ้าน
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      final attendanceService =
+          Provider.of<AttendanceService>(context, listen: false);
+      await attendanceService.loadTodayAttendance();
+    });
   }
 
   @override

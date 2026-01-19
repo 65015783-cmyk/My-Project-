@@ -302,7 +302,7 @@ class _EmployeeSalaryListScreenState extends State<EmployeeSalaryListScreen> {
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: Text(
-                        'เงินเดือน: ${employee.currentSalaryFormatted}',
+                        'ฐานเงินเดือน: ${employee.baseSalaryFormatted}',
                         style: TextStyle(
                           fontSize: 14,
                           fontWeight: FontWeight.w600,
@@ -440,8 +440,8 @@ class _EmployeeSalaryListScreenState extends State<EmployeeSalaryListScreen> {
                 _buildDetailSection(
                   'ข้อมูลเงินเดือน',
                   [
-                    _buildDetailRow('เงินเดือนปัจจุบัน', employee.currentSalaryFormatted, Colors.green),
-                    _buildDetailRow('เงินฐานเงินเดือน', employee.baseSalaryFormatted, Colors.blue),
+                    // แสดงฐานเงินเดือนเป็นตัวหลัก แทนเงินเดือนปัจจุบัน
+                    _buildDetailRow('ฐานเงินเดือน', employee.baseSalaryFormatted, Colors.green),
                     _buildDetailRow('จำนวนครั้งที่ปรับ', '${employee.adjustmentCount} ครั้ง', Colors.orange),
                     if (employee.lastAdjustmentDate != null)
                       _buildDetailRow(

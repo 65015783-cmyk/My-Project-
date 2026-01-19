@@ -291,19 +291,37 @@ router.post('/salary/create', authenticateToken, requireHR, async (req, res) => 
       return res.status(400).json({ message: 'พนักงานนี้มีเงินเดือน START อยู่แล้ว กรุณาใช้ ADJUST เพื่อปรับเงินเดือน' });
     }
 
-    // สร้าง record ใหม่
-    const [result] = await connection.execute(
-      `INSERT INTO salary_history 
-       (employee_id, salary_amount, effective_date, salary_type, created_by)
-       VALUES (?, ?, ?, 'START', ?)`,
-      [employee_id, salary_amount, effective_date, created_by]
-    );
+    // เริ่ม transaction เพื่อให้ salary_history และ base_salary อัปเดตไปด้วยกัน
+    await connection.beginTransaction();
 
-    res.status(201).json({
-      success: true,
-      message: 'สร้างเงินเดือนแรกสำเร็จ',
-      salary_id: result.insertId
-    });
+    try {
+      // สร้าง record ใหม่ใน salary_history
+      const [result] = await connection.execute(
+        `INSERT INTO salary_history 
+         (employee_id, salary_amount, effective_date, salary_type, created_by)
+         VALUES (?, ?, ?, 'START', ?)`,
+        [employee_id, salary_amount, effective_date, created_by]
+      );
+
+      // อัปเดตฐานเงินเดือนในตาราง employees ให้ตรงกับเงินเดือน START
+      await connection.execute(
+        `UPDATE employees 
+         SET base_salary = ? 
+         WHERE employee_id = ?`,
+        [salary_amount, employee_id]
+      );
+
+      await connection.commit();
+
+      res.status(201).json({
+        success: true,
+        message: 'สร้างเงินเดือนแรกสำเร็จ และอัปเดตฐานเงินเดือนแล้ว',
+        salary_id: result.insertId
+      });
+    } catch (txError) {
+      await connection.rollback();
+      throw txError;
+    }
   } catch (error) {
     console.error('Create starting salary error:', error);
     res.status(500).json({ message: 'เกิดข้อผิดพลาดในการสร้างเงินเดือนแรก' });
@@ -348,19 +366,37 @@ router.post('/salary/adjust', authenticateToken, requireHR, async (req, res) => 
       return res.status(400).json({ message: 'พนักงานนี้ยังไม่มีเงินเดือน START กรุณาสร้างเงินเดือน START ก่อน' });
     }
 
-    // สร้าง ADJUST record ใหม่
-    const [result] = await connection.execute(
-      `INSERT INTO salary_history 
-       (employee_id, salary_amount, effective_date, salary_type, reason, created_by)
-       VALUES (?, ?, ?, 'ADJUST', ?, ?)`,
-      [employee_id, salary_amount, effective_date, reason, created_by]
-    );
+    // เริ่ม transaction เพื่อให้ salary_history และ base_salary อัปเดตไปด้วยกัน
+    await connection.beginTransaction();
 
-    res.status(201).json({
-      success: true,
-      message: 'ปรับเงินเดือนสำเร็จ',
-      salary_id: result.insertId
-    });
+    try {
+      // สร้าง ADJUST record ใหม่
+      const [result] = await connection.execute(
+        `INSERT INTO salary_history 
+         (employee_id, salary_amount, effective_date, salary_type, reason, created_by)
+         VALUES (?, ?, ?, 'ADJUST', ?, ?)`,
+        [employee_id, salary_amount, effective_date, reason, created_by]
+      );
+
+      // อัปเดตฐานเงินเดือนใน employees ให้เป็นเงินเดือนล่าสุด
+      await connection.execute(
+        `UPDATE employees 
+         SET base_salary = ? 
+         WHERE employee_id = ?`,
+        [salary_amount, employee_id]
+      );
+
+      await connection.commit();
+
+      res.status(201).json({
+        success: true,
+        message: 'ปรับเงินเดือนสำเร็จ และอัปเดตฐานเงินเดือนแล้ว',
+        salary_id: result.insertId
+      });
+    } catch (txError) {
+      await connection.rollback();
+      throw txError;
+    }
   } catch (error) {
     console.error('Adjust salary error:', error);
     res.status(500).json({ message: 'เกิดข้อผิดพลาดในการปรับเงินเดือน' });

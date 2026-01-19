@@ -7,7 +7,21 @@ const { authenticateToken } = require('../middleware/auth');
 // Middleware: ตรวจสอบว่าเป็น admin เท่านั้น
 const requireAdmin = (req, res, next) => {
   if (req.user.role !== 'admin') {
-    return res.status(403).json({ message: 'ไม่มีสิทธิ์เข้าถึง (ต้องเป็น Admin)' });
+    return res
+      .status(403)
+      .json({ message: 'ไม่มีสิทธิ์เข้าถึง (ต้องเป็น Admin)' });
+  }
+  next();
+};
+
+// Middleware: ตรวจสอบว่าเป็น admin, HR หรือ manager
+// ใช้กับ endpoint รายงาน/สรุป ที่ HR/Manager ต้องดูได้ด้วย
+const requireAdminOrHR = (req, res, next) => {
+  const role = req.user.role;
+  if (role !== 'admin' && role !== 'hr' && role !== 'manager') {
+    return res.status(403).json({
+      message: 'ไม่มีสิทธิ์เข้าถึง (ต้องเป็น Admin, HR หรือ Manager)',
+    });
   }
   next();
 };
@@ -339,7 +353,11 @@ router.delete('/users/:id', authenticateToken, requireAdmin, async (req, res) =>
 // ===========================
 // GET /api/admin/leave-summary - สรุปข้อมูลวันลาของพนักงานทั้งหมด
 // ===========================
-router.get('/leave-summary', authenticateToken, requireAdmin, async (req, res) => {
+router.get(
+  '/leave-summary',
+  authenticateToken,
+  requireAdminOrHR,
+  async (req, res) => {
   let connection;
   try {
     connection = await pool.getConnection();
@@ -434,19 +452,39 @@ router.get('/leave-summary', authenticateToken, requireAdmin, async (req, res) =
     });
   } catch (error) {
     console.error('Get leave summary error:', error);
-    res.status(500).json({ message: 'เกิดข้อผิดพลาดในการดึงข้อมูลสรุปวันลา' });
+    res
+      .status(500)
+      .json({ message: 'เกิดข้อผิดพลาดในการดึงข้อมูลสรุปวันลา' });
   } finally {
     if (connection) connection.release();
   }
 });
 
 // ===========================
-// GET /api/admin/leave-details - รายละเอียดวันลาของพนักงานทั้งหมด
+// GET /api/admin/leave-details - รายละเอียดวันลาของพนักงานทั้งหมด (รองรับ filter ตามวันที่)
 // ===========================
-router.get('/leave-details', authenticateToken, requireAdmin, async (req, res) => {
+router.get(
+  '/leave-details',
+  authenticateToken,
+  requireAdminOrHR,
+  async (req, res) => {
   let connection;
   try {
     connection = await pool.getConnection();
+
+    // รองรับ query parameter date (YYYY-MM-DD) เพื่อดึงเฉพาะใบลาที่มีผลในวันนั้น
+    const { date } = req.query;
+    let whereClause = '1=1';
+    const params = [];
+
+    if (date) {
+      // เลือกใบลาที่วันที่เลือกอยู่ในช่วง start_date - end_date
+      whereClause += ' AND ? BETWEEN lv.start_date AND lv.end_date';
+      params.push(date);
+    }
+
+    // ไม่ filter สถานะที่ backend แล้ว
+    // ปล่อยให้ฝั่ง Flutter กรอง approved / pending / rejected เอง
 
     const [leaves] = await connection.execute(
       `SELECT 
@@ -466,13 +504,15 @@ router.get('/leave-details', authenticateToken, requireAdmin, async (req, res) =
         lv.created_at
       FROM leaves lv
       LEFT JOIN employees e ON lv.user_id = e.employee_id
+      WHERE ${whereClause}
       ORDER BY lv.created_at DESC
-      LIMIT 100`
+      LIMIT 200`,
+      params
     );
 
     res.json({
       success: true,
-      leaves: leaves
+      leaves
     });
   } catch (error) {
     console.error('Get leave details error:', error);

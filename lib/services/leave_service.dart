@@ -217,6 +217,7 @@ class LeaveService extends ChangeNotifier {
           createdAt: DateTime.now(),
         );
 
+        // เพิ่มเข้า list ชั่วคราว เพื่อให้ UI ตอบสนองทันที
         _leaveRequests.insert(0, newRequest);
         
         // Update leave balance (หักเฉพาะวันลาป่วยและลากิจเต็มวัน)
@@ -264,7 +265,13 @@ class LeaveService extends ChangeNotifier {
             break;
         }
 
+        // แจ้งให้ UI อัปเดตทันที
         notifyListeners();
+
+        // จากนั้นโหลดข้อมูลจาก backend อีกครั้ง เพื่อให้ข้อมูลในหน้าประวัติการลา
+        // ตรงกับฐานข้อมูล 100% (กันกรณีคำนวณ total_days หรือ status ฝั่ง server)
+        await _loadLeaveHistory();
+        await _loadLeaveBalance();
       } else {
         final errorData = json.decode(response.body) as Map<String, dynamic>?;
         throw Exception(errorData?['message'] ?? 'เกิดข้อผิดพลาดในการส่งคำขอลางาน');

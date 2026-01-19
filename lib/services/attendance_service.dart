@@ -84,40 +84,35 @@ class AttendanceService extends ChangeNotifier {
           DateTime? checkInTime;
           DateTime? checkOutTime;
           
-          // Parse check_in_time
+          // Parse check_in_time (รองรับทั้ง DATETIME และ ISO8601 + Z)
           final checkInTimeValue = attendanceData['check_in_time'];
           if (checkInTimeValue != null && checkInTimeValue.toString().isNotEmpty) {
             try {
               final checkInTimeStr = checkInTimeValue.toString().trim();
-              
-              // MySQL DATETIME format: "YYYY-MM-DD HH:mm:ss" หรือ "YYYY-MM-DDTHH:mm:ss.000Z"
-              // ลบ microseconds ถ้ามี และแปลง timezone
-              String normalizedTime = checkInTimeStr;
-              if (normalizedTime.contains('T')) {
-                // ISO format: "2024-12-14T07:15:00.000Z" -> "2024-12-14 07:15:00"
-                normalizedTime = normalizedTime.split('T')[0] + ' ' + 
-                                 normalizedTime.split('T')[1].split('.')[0].split('Z')[0];
+
+              if (checkInTimeStr.contains('T')) {
+                // ISO8601 string (เช่น จาก JSON) - แปลงจาก UTC -> Local
+                checkInTime = DateTime.parse(checkInTimeStr).toLocal();
+              } else {
+                // MySQL DATETIME (local time)
+                checkInTime = DateTime.parse(checkInTimeStr);
               }
-              
-              checkInTime = DateTime.parse(normalizedTime);
             } catch (e) {
               // Ignore parsing errors
             }
           }
           
-          // Parse check_out_time
+          // Parse check_out_time (รองรับทั้ง DATETIME และ ISO8601 + Z)
           final checkOutTimeValue = attendanceData['check_out_time'];
           if (checkOutTimeValue != null && checkOutTimeValue.toString().isNotEmpty) {
             try {
               final checkOutTimeStr = checkOutTimeValue.toString().trim();
-              
-              String normalizedTime = checkOutTimeStr;
-              if (normalizedTime.contains('T')) {
-                normalizedTime = normalizedTime.split('T')[0] + ' ' + 
-                                 normalizedTime.split('T')[1].split('.')[0].split('Z')[0];
+
+              if (checkOutTimeStr.contains('T')) {
+                checkOutTime = DateTime.parse(checkOutTimeStr).toLocal();
+              } else {
+                checkOutTime = DateTime.parse(checkOutTimeStr);
               }
-              
-              checkOutTime = DateTime.parse(normalizedTime);
             } catch (e) {
               // Ignore parsing errors
             }
@@ -237,60 +232,65 @@ class AttendanceService extends ChangeNotifier {
                                   responseBody.contains('already checked-in');
 
       if (response.statusCode == 200 || response.statusCode == 201) {
-        // อัปเดต attendance ทันทีเพื่อให้ UI แสดงเวลาทันที (optimistic update)
-        final now = DateTime.now();
+        print('[AttendanceService] ========== CHECK-IN SUCCESS ==========');
+        print('[AttendanceService] Response: ${response.body}');
         
-        // สร้าง AttendanceModel ใหม่ด้วย checkInTime
+        // พยายาม parse checkInTime จาก response
+        DateTime? serverCheckInTime;
+        try {
+          final responseData = json.decode(response.body) as Map<String, dynamic>?;
+          if (responseData != null && responseData['checkInTime'] != null) {
+            final checkInTimeStr = responseData['checkInTime'].toString();
+
+            if (checkInTimeStr.contains('T')) {
+              // ISO8601 + Z -> แปลงจาก UTC เป็นเวลาเครื่อง
+              serverCheckInTime = DateTime.parse(checkInTimeStr).toLocal();
+            } else {
+              serverCheckInTime = DateTime.parse(checkInTimeStr);
+            }
+            print('[AttendanceService] Parsed server checkInTime: $serverCheckInTime');
+          }
+        } catch (e) {
+          print('[AttendanceService] Could not parse checkInTime from response: $e');
+        }
+        
+        // ใช้เวลาจาก server ถ้ามี ไม่เช่นนั้นใช้เวลาที่ส่งไป
+        final finalCheckInTime = serverCheckInTime ?? effectiveCheckInTime;
+        
+        // อัปเดต attendance ด้วยเวลาจาก server
+        final now = DateTime.now();
         final newAttendance = AttendanceModel(
           id: _todayAttendance?.id ?? 'att_${now.millisecondsSinceEpoch}',
           date: selectedDate,
-          checkInTime: effectiveCheckInTime,
+          checkInTime: finalCheckInTime,
           checkOutTime: _todayAttendance?.checkOutTime,
           checkInImagePath: imagePath.isNotEmpty ? imagePath : null,
           workSchedule: _defaultSchedule,
         );
         
-        // อัปเดต _todayAttendance
         _todayAttendance = newAttendance;
         
-        print('[AttendanceService] ========== CHECK-IN SUCCESS ==========');
-        print('[AttendanceService] checkInTime: $effectiveCheckInTime');
+        print('[AttendanceService] Final checkInTime: $finalCheckInTime');
         print('[AttendanceService] checkInTimeFormatted: ${_todayAttendance?.checkInTimeFormatted}');
-        print('[AttendanceService] _todayAttendance is null: ${_todayAttendance == null}');
-        print('[AttendanceService] _todayAttendance.checkInTime is null: ${_todayAttendance?.checkInTime == null}');
         
-        // แจ้งให้ UI อัปเดตทันที (optimistic update)
+        // แจ้งให้ UI อัปเดตทันที
         notifyListeners();
         print('[AttendanceService] notifyListeners() called after check-in');
         
-        // ไม่โหลดข้อมูลจาก API เพื่อให้แสดงเวลาที่กด check-in จริงๆ
-        // ผู้ใช้ต้องการให้แสดงเวลาที่กด check-in เองเท่านั้น ไม่ใช่เวลาจาก API
+        // โหลดข้อมูลจาก API เพื่อให้แน่ใจว่าข้อมูลตรงกับ backend
+        await loadTodayAttendance();
+        print('[AttendanceService] Reloaded attendance from API');
         
         return true;
       } else if (response.statusCode == 400 && isAlreadyCheckedIn) {
-        // ถ้า API บอกว่าเช็คอินแล้ว ให้ใช้เวลาปัจจุบันที่กดเข้างาน
+        // ถ้า API บอกว่าเช็คอินแล้ว ให้โหลดข้อมูลจาก API เพื่อใช้เวลาจริงจาก backend
         print('[AttendanceService] ========== ALREADY CHECKED IN ==========');
-        print('[AttendanceService] Using current check-in time: $effectiveCheckInTime');
+        print('[AttendanceService] Loading attendance from API to get actual check-in time');
         
-        // อัปเดต attendance ด้วยเวลาปัจจุบันที่กดเข้างาน
-        final now = DateTime.now();
-        final newAttendance = AttendanceModel(
-          id: _todayAttendance?.id ?? 'att_${now.millisecondsSinceEpoch}',
-          date: selectedDate,
-          checkInTime: effectiveCheckInTime, // ใช้เวลาปัจจุบันที่กดเข้างาน
-          checkOutTime: _todayAttendance?.checkOutTime,
-          checkInImagePath: imagePath.isNotEmpty ? imagePath : _todayAttendance?.checkInImagePath,
-          workSchedule: _defaultSchedule,
-        );
-        
-        _todayAttendance = newAttendance;
-        
-        print('[AttendanceService] Updated checkInTime: ${_todayAttendance?.checkInTimeFormatted}');
-        
-        // แจ้งให้ UI อัปเดต
-        notifyListeners();
-        
-        print('[AttendanceService] Using current check-in time instead of API time');
+        // โหลดข้อมูลจาก API เพื่อใช้เวลาจริงจาก backend
+        await loadTodayAttendance();
+        print('[AttendanceService] Reloaded attendance from API');
+        print('[AttendanceService] checkInTimeFormatted: ${_todayAttendance?.checkInTimeFormatted}');
         
         // return true เพื่อให้ UI แสดงว่าเช็คอินสำเร็จแล้ว
         return true;
@@ -345,7 +345,29 @@ class AttendanceService extends ChangeNotifier {
           responseBody.contains('already checked-out');
 
       if (response.statusCode == 200 || response.statusCode == 201) {
-        // อัปเดต attendance ทันทีเพื่อให้ UI แสดงเวลาทันที
+        print('[AttendanceService] ========== CHECK-OUT SUCCESS ==========');
+        print('[AttendanceService] Response: ${response.body}');
+        
+        // พยายาม parse checkOutTime จาก response
+        DateTime? serverCheckOutTime;
+        try {
+          final responseData = json.decode(response.body) as Map<String, dynamic>?;
+          if (responseData != null && responseData['checkOutTime'] != null) {
+            final checkOutTimeStr = responseData['checkOutTime'].toString();
+
+            if (checkOutTimeStr.contains('T')) {
+              serverCheckOutTime = DateTime.parse(checkOutTimeStr).toLocal();
+            } else {
+              serverCheckOutTime = DateTime.parse(checkOutTimeStr);
+            }
+            print('[AttendanceService] Parsed server checkOutTime: $serverCheckOutTime');
+          }
+        } catch (e) {
+          print('[AttendanceService] Could not parse checkOutTime from response: $e');
+        }
+        
+        // ใช้เวลาจาก server ถ้ามี ไม่เช่นนั้นใช้เวลาปัจจุบัน
+        final finalCheckOutTime = serverCheckOutTime ?? DateTime.now();
         final now = DateTime.now();
         final today = DateTime(now.year, now.month, now.day);
         
@@ -353,49 +375,32 @@ class AttendanceService extends ChangeNotifier {
           id: _todayAttendance?.id ?? 'att_${now.millisecondsSinceEpoch}',
           date: _todayAttendance?.date ?? today,
           checkInTime: _todayAttendance?.checkInTime,
-          checkOutTime: now,
+          checkOutTime: finalCheckOutTime,
           checkInImagePath: _todayAttendance?.checkInImagePath,
           workSchedule: _defaultSchedule,
         );
         
-        print('[AttendanceService] ========== CHECK-OUT SUCCESS ==========');
-        print('[AttendanceService] checkOutTime: $now');
+        print('[AttendanceService] Final checkOutTime: $finalCheckOutTime');
         print('[AttendanceService] checkOutTimeFormatted: ${_todayAttendance?.checkOutTimeFormatted}');
         
         // แจ้งให้ UI อัปเดตทันที
         notifyListeners();
         
-        // ไม่โหลดข้อมูลจาก API เพื่อให้แสดงเวลาที่กด check-out จริงๆ
-        // ผู้ใช้ต้องการให้แสดงเวลาที่กด check-out เองเท่านั้น ไม่ใช่เวลาจาก API
+        // โหลดข้อมูลจาก API เพื่อให้แน่ใจว่าข้อมูลตรงกับ backend
+        await loadTodayAttendance();
+        print('[AttendanceService] Reloaded attendance from API');
         
         return true;
       } else if (response.statusCode == 400 && isAlreadyCheckedOut) {
-        // ถ้า API บอกว่าเช็คเอาท์แล้ว ให้ใช้เวลาปัจจุบันที่กดเช็คเอาท์ (หรือเวลาที่มีอยู่แล้ว)
+        // ถ้า API บอกว่าเช็คเอาท์แล้ว ให้โหลดข้อมูลจาก API เพื่อใช้เวลาจริงจาก backend
         print('[AttendanceService] ========== ALREADY CHECKED OUT ==========');
-        final now = DateTime.now();
-        print('[AttendanceService] Using current check-out time: $now');
-
-        final today = DateTime(now.year, now.month, now.day);
-
-        // ถ้ามีเวลา checkOut เดิมอยู่แล้วให้คงไว้ ไม่ทับค่าเดิม
-        final effectiveCheckOutTime = _todayAttendance?.checkOutTime ?? now;
-
-        final newAttendance = AttendanceModel(
-          id: _todayAttendance?.id ?? 'att_${now.millisecondsSinceEpoch}',
-          date: _todayAttendance?.date ?? today,
-          checkInTime: _todayAttendance?.checkInTime,
-          checkOutTime: effectiveCheckOutTime,
-          checkInImagePath: _todayAttendance?.checkInImagePath,
-          workSchedule: _defaultSchedule,
-        );
-
-        _todayAttendance = newAttendance;
-
-        print('[AttendanceService] Updated checkOutTime: ${_todayAttendance?.checkOutTimeFormatted}');
-
-        // แจ้งให้ UI อัปเดต
-        notifyListeners();
-
+        print('[AttendanceService] Loading attendance from API to get actual check-out time');
+        
+        // โหลดข้อมูลจาก API เพื่อใช้เวลาจริงจาก backend
+        await loadTodayAttendance();
+        print('[AttendanceService] Reloaded attendance from API');
+        print('[AttendanceService] checkOutTimeFormatted: ${_todayAttendance?.checkOutTimeFormatted}');
+        
         // return true เพื่อให้ UI แสดงว่าเช็คเอาท์สำเร็จแล้ว
         return true;
       } else {
@@ -469,39 +474,31 @@ class AttendanceService extends ChangeNotifier {
             DateTime? checkInTime;
             DateTime? checkOutTime;
 
-            // check_in_time
+            // check_in_time (รองรับทั้ง DATETIME และ ISO8601 + Z)
             final checkInTimeValue = attendanceData['check_in_time'];
             if (checkInTimeValue != null &&
                 checkInTimeValue.toString().isNotEmpty) {
               try {
-                String normalizedTime = checkInTimeValue.toString().trim();
-                if (normalizedTime.contains('T')) {
-                  normalizedTime = normalizedTime.split('T')[0] +
-                      ' ' +
-                      normalizedTime
-                          .split('T')[1]
-                          .split('.')[0]
-                          .split('Z')[0];
+                final timeStr = checkInTimeValue.toString().trim();
+                if (timeStr.contains('T')) {
+                  checkInTime = DateTime.parse(timeStr).toLocal();
+                } else {
+                  checkInTime = DateTime.parse(timeStr);
                 }
-                checkInTime = DateTime.parse(normalizedTime);
               } catch (_) {}
             }
 
-            // check_out_time
+            // check_out_time (รองรับทั้ง DATETIME และ ISO8601 + Z)
             final checkOutTimeValue = attendanceData['check_out_time'];
             if (checkOutTimeValue != null &&
                 checkOutTimeValue.toString().isNotEmpty) {
               try {
-                String normalizedTime = checkOutTimeValue.toString().trim();
-                if (normalizedTime.contains('T')) {
-                  normalizedTime = normalizedTime.split('T')[0] +
-                      ' ' +
-                      normalizedTime
-                          .split('T')[1]
-                          .split('.')[0]
-                          .split('Z')[0];
+                final timeStr = checkOutTimeValue.toString().trim();
+                if (timeStr.contains('T')) {
+                  checkOutTime = DateTime.parse(timeStr).toLocal();
+                } else {
+                  checkOutTime = DateTime.parse(timeStr);
                 }
-                checkOutTime = DateTime.parse(normalizedTime);
               } catch (_) {}
             }
 

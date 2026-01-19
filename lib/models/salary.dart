@@ -51,6 +51,28 @@ class Salary {
   double get netSalary => totalIncome - totalDeductions;
 
   factory Salary.fromJson(Map<String, dynamic> json) {
+    // Helper แปลงค่าเป็น double/int ให้ทนทานต่อทั้ง num และ String
+    double _parseDouble(dynamic value) {
+      if (value == null) return 0.0;
+      if (value is num) return value.toDouble();
+      if (value is String) {
+        final parsed = double.tryParse(value.replaceAll(',', ''));
+        return parsed ?? 0.0;
+      }
+      return 0.0;
+    }
+
+    int _parseInt(dynamic value) {
+      if (value == null) return 0;
+      if (value is int) return value;
+      if (value is num) return value.toInt();
+      if (value is String) {
+        final parsed = int.tryParse(value.replaceAll(',', ''));
+        return parsed ?? 0;
+      }
+      return 0;
+    }
+
     // Parse month - อาจเป็น int (1-12) หรือ string (ชื่อเดือนภาษาไทย)
     String monthStr;
     if (json['month'] is int) {
@@ -87,21 +109,21 @@ class Salary {
       month: monthStr,
       year: year,
       paymentDate: paymentDate,
-      baseSalary: (json['base_salary'] as num?)?.toDouble() ?? 0,
-      bonus: (json['bonus'] as num?)?.toDouble() ?? 0,
-      overtime: (json['overtime'] as num?)?.toDouble() ?? 0,
-      allowance: (json['allowance'] as num?)?.toDouble() ?? 0,
-      transportAllowance: (json['transport_allowance'] as num?)?.toDouble() ?? 0,
-      otherIncome: (json['other_income'] as num?)?.toDouble() ?? 0,
-      tax: (json['tax'] as num?)?.toDouble() ?? 0,
-      socialSecurity: (json['social_security'] as num?)?.toDouble() ?? 0,
-      providentFund: (json['provident_fund'] as num?)?.toDouble() ?? 0,
-      loan: (json['loan'] as num?)?.toDouble() ?? 0,
-      fine: (json['fine'] as num?)?.toDouble() ?? 0,
-      otherDeductions: (json['other_deductions'] as num?)?.toDouble() ?? 0,
-      workDays: (json['work_days'] as num?)?.toInt() ?? 0,
-      leaveDays: (json['leave_days'] as num?)?.toInt() ?? 0,
-      overtimeHours: (json['overtime_hours'] as num?)?.toDouble() ?? 0,
+      baseSalary: _parseDouble(json['base_salary']),
+      bonus: _parseDouble(json['bonus']),
+      overtime: _parseDouble(json['overtime']),
+      allowance: _parseDouble(json['allowance']),
+      transportAllowance: _parseDouble(json['transport_allowance']),
+      otherIncome: _parseDouble(json['other_income']),
+      tax: _parseDouble(json['tax']),
+      socialSecurity: _parseDouble(json['social_security']),
+      providentFund: _parseDouble(json['provident_fund']),
+      loan: _parseDouble(json['loan']),
+      fine: _parseDouble(json['fine']),
+      otherDeductions: _parseDouble(json['other_deductions']),
+      workDays: _parseInt(json['work_days']),
+      leaveDays: _parseInt(json['leave_days']),
+      overtimeHours: _parseDouble(json['overtime_hours']),
     );
   }
 

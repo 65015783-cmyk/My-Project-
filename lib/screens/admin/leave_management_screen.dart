@@ -43,6 +43,11 @@ class _LeaveManagementScreenState extends State<LeaveManagementScreen> with Widg
 
   Future<void> _loadPendingLeaves() async {
     try {
+      // เคลียร์ error message ทั้งหมดก่อนโหลดข้อมูลใหม่
+      if (mounted) {
+        ScaffoldMessenger.of(context).clearSnackBars();
+      }
+      
       setState(() {
         _isLoading = true;
       });
@@ -61,6 +66,11 @@ class _LeaveManagementScreenState extends State<LeaveManagementScreen> with Widg
       final response = await http.get(
         Uri.parse(ApiConfig.leavePendingUrl),
         headers: ApiConfig.headersWithAuth(token),
+      ).timeout(
+        const Duration(seconds: 10),
+        onTimeout: () {
+          throw Exception('การเชื่อมต่อหมดเวลา กรุณาลองอีกครั้ง');
+        },
       );
 
       print('[Leave Management] Response status: ${response.statusCode}');
@@ -77,15 +87,25 @@ class _LeaveManagementScreenState extends State<LeaveManagementScreen> with Widg
           _pendingLeaves = leaves;
           _isLoading = false;
         });
+        // เคลียร์ error message ทั้งหมดเมื่อโหลดสำเร็จ
+        if (mounted) {
+          ScaffoldMessenger.of(context).clearSnackBars();
+        }
+        // ไม่แสดง error เมื่อโหลดสำเร็จ (แม้ว่าจะไม่มีข้อมูลก็ตาม)
       } else {
         setState(() {
           _isLoading = false;
         });
-        if (mounted) {
+        // แสดง error เฉพาะเมื่อมีปัญหาจริงๆ (ไม่ใช่กรณีไม่มีข้อมูล)
+        if (mounted && response.statusCode >= 400) {
+          final errorData = json.decode(response.body) as Map<String, dynamic>?;
+          final errorMessage = errorData?['message'] ?? 'ไม่สามารถโหลดข้อมูลได้';
+          ScaffoldMessenger.of(context).hideCurrentSnackBar();
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('ไม่สามารถโหลดข้อมูลได้'),
+            SnackBar(
+              content: Text(errorMessage),
               backgroundColor: Colors.red,
+              duration: const Duration(seconds: 3),
             ),
           );
         }
@@ -94,11 +114,18 @@ class _LeaveManagementScreenState extends State<LeaveManagementScreen> with Widg
       setState(() {
         _isLoading = false;
       });
+      // แสดง error เฉพาะเมื่อเกิด exception จริงๆ
+      final errorMessage = e.toString().contains('TimeoutException') || e.toString().contains('หมดเวลา')
+          ? 'การเชื่อมต่อหมดเวลา กรุณาลองอีกครั้ง'
+          : 'เกิดข้อผิดพลาด: ${e.toString()}';
+      
       if (mounted) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('เกิดข้อผิดพลาด: ${e.toString()}'),
+            content: Text(errorMessage),
             backgroundColor: Colors.red,
+            duration: const Duration(seconds: 3),
           ),
         );
       }
@@ -107,6 +134,7 @@ class _LeaveManagementScreenState extends State<LeaveManagementScreen> with Widg
 
   Future<void> _updateLeaveStatus(int leaveId, String status, {String? rejectionReason}) async {
     try {
+      print('[Leave Approval] Starting update status: leaveId=$leaveId, status=$status');
       setState(() {
         _isLoading = true;
       });
@@ -115,10 +143,14 @@ class _LeaveManagementScreenState extends State<LeaveManagementScreen> with Widg
       final token = prefs.getString('auth_token');
 
       if (token == null) {
+        print('[Leave Approval] Error: No token found');
+        setState(() {
+          _isLoading = false;
+        });
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('ไม่พบ Token การยืนยันตัวตน'),
+              content: Text('ไม่พบ Token การยืนยันตัวตน กรุณาเข้าสู่ระบบใหม่'),
               backgroundColor: Colors.red,
             ),
           );
@@ -126,36 +158,63 @@ class _LeaveManagementScreenState extends State<LeaveManagementScreen> with Widg
         return;
       }
 
+      // สร้าง URL แบบปลอดภัย
+      final url = '${ApiConfig.leaveStatusUrl}/$leaveId/status';
       print('[Leave Approval] Sending request: leaveId=$leaveId, status=$status');
+      print('[Leave Approval] URL: $url');
+      print('[Leave Approval] Base URL: ${ApiConfig.leaveStatusUrl}');
+      print('[Leave Approval] Token exists: ${token.isNotEmpty}');
 
       final response = await http.patch(
-        Uri.parse('${ApiConfig.leaveStatusUrl}/$leaveId/status'),
+        Uri.parse(url),
         headers: ApiConfig.headersWithAuth(token),
         body: json.encode({
           'status': status,
           if (rejectionReason != null && rejectionReason.isNotEmpty) 'rejectionReason': rejectionReason,
         }),
+      ).timeout(
+        const Duration(seconds: 15),
+        onTimeout: () {
+          throw Exception('การเชื่อมต่อหมดเวลา กรุณาลองอีกครั้ง');
+        },
       );
 
       print('[Leave Approval] Response status: ${response.statusCode}');
       print('[Leave Approval] Response body: ${response.body}');
 
-      if (response.statusCode == 200) {
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        // เคลียร์ error message ก่อนแสดง success message
         if (mounted) {
+          ScaffoldMessenger.of(context).clearSnackBars();
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(status == 'approved' ? 'อนุมัติสำเร็จ' : 'ปฏิเสธสำเร็จ'),
               backgroundColor: Colors.green,
+              duration: const Duration(seconds: 2),
             ),
           );
         }
         await _loadPendingLeaves(); // Reload data
       } else {
-        final errorData = json.decode(response.body) as Map<String, dynamic>?;
-        final errorMessage = errorData?['message'] ?? 'เกิดข้อผิดพลาด';
-        print('[Leave Approval] Error: $errorMessage');
+        // พยายาม parse error message จาก response
+        String errorMessage = 'เกิดข้อผิดพลาด';
+        try {
+          final errorData = json.decode(response.body) as Map<String, dynamic>?;
+          errorMessage = errorData?['message'] ?? 'เกิดข้อผิดพลาด';
+        } catch (e) {
+          // ถ้า response ไม่ใช่ JSON
+          errorMessage = 'เกิดข้อผิดพลาด (Status: ${response.statusCode})';
+          if (response.body.isNotEmpty) {
+            errorMessage += '\n${response.body.substring(0, 100)}';
+          }
+        }
+        
+        print('[Leave Approval] Error Status: ${response.statusCode}');
+        print('[Leave Approval] Error Message: $errorMessage');
+        print('[Leave Approval] Response Body: ${response.body}');
         
         if (mounted) {
+          ScaffoldMessenger.of(context).clearSnackBars();
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(errorMessage),
@@ -167,10 +226,32 @@ class _LeaveManagementScreenState extends State<LeaveManagementScreen> with Widg
       }
     } catch (e) {
       print('[Leave Approval] Exception: $e');
+      print('[Leave Approval] Exception type: ${e.runtimeType}');
+      print('[Leave Approval] Stack trace: ${StackTrace.current}');
+      
+      String errorMessage = 'เกิดข้อผิดพลาด';
+      
+      if (e.toString().contains('TimeoutException') || e.toString().contains('หมดเวลา')) {
+        errorMessage = 'การเชื่อมต่อหมดเวลา กรุณาลองอีกครั้ง\nหรือตรวจสอบว่า backend ทำงานอยู่';
+      } else if (e.toString().contains('SocketException') || e.toString().contains('Failed host lookup')) {
+        errorMessage = 'ไม่สามารถเชื่อมต่อกับ server ได้\nกรุณาตรวจสอบว่า backend ทำงานอยู่\n(รัน: cd backend && npm start)';
+      } else if (e.toString().contains('FormatException')) {
+        errorMessage = 'ข้อมูลที่ได้รับไม่ถูกต้อง\nกรุณาตรวจสอบ backend logs';
+      } else {
+        // แสดง error message ที่ละเอียดขึ้น
+        final errorStr = e.toString().replaceAll('Exception: ', '');
+        if (errorStr.length > 100) {
+          errorMessage = 'เกิดข้อผิดพลาด: ${errorStr.substring(0, 100)}...';
+        } else {
+          errorMessage = 'เกิดข้อผิดพลาด: $errorStr';
+        }
+      }
+      
       if (mounted) {
+        ScaffoldMessenger.of(context).clearSnackBars();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('เกิดข้อผิดพลาด: ${e.toString()}'),
+            content: Text(errorMessage),
             backgroundColor: Colors.red,
             duration: const Duration(seconds: 5),
           ),
@@ -186,20 +267,35 @@ class _LeaveManagementScreenState extends State<LeaveManagementScreen> with Widg
   }
 
   void _showApprovalDialog(int leaveId, String employeeName) {
-    if (_isLoading) return; // ป้องกันการกดซ้ำ
+    if (_isLoading) {
+      print('[Leave Approval] Cannot show dialog - isLoading is true');
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('กำลังประมวลผล กรุณารอสักครู่...'),
+          backgroundColor: Colors.orange,
+          duration: Duration(seconds: 2),
+        ),
+      );
+      return; // ป้องกันการกดซ้ำ
+    }
+    
+    print('[Leave Approval] Showing approval dialog for leaveId: $leaveId, employee: $employeeName');
     
     showDialog(
       context: context,
+      barrierDismissible: !_isLoading, // ไม่ให้ปิด dialog ถ้ากำลัง loading
       builder: (context) => AlertDialog(
         title: const Text('อนุมัติการลา'),
         content: Text('คุณต้องการอนุมัติการลาของ $employeeName ใช่หรือไม่?'),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: _isLoading ? null : () {
+              Navigator.pop(context);
+            },
             child: const Text('ยกเลิก'),
           ),
           ElevatedButton(
-            onPressed: () {
+            onPressed: _isLoading ? null : () {
               Navigator.pop(context);
               print('[Leave Approval] User clicked approve for leaveId: $leaveId');
               _updateLeaveStatus(leaveId, 'approved');
@@ -213,7 +309,19 @@ class _LeaveManagementScreenState extends State<LeaveManagementScreen> with Widg
   }
 
   void _showRejectionDialog(int leaveId, String employeeName) {
-    if (_isLoading) return; // ป้องกันการกดซ้ำ
+    if (_isLoading) {
+      print('[Leave Approval] Cannot show rejection dialog - isLoading is true');
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('กำลังประมวลผล กรุณารอสักครู่...'),
+          backgroundColor: Colors.orange,
+          duration: Duration(seconds: 2),
+        ),
+      );
+      return; // ป้องกันการกดซ้ำ
+    }
+    
+    print('[Leave Approval] Showing rejection dialog for leaveId: $leaveId, employee: $employeeName');
     
     final reasonController = TextEditingController();
     
@@ -881,7 +989,12 @@ class _LeaveManagementScreenState extends State<LeaveManagementScreen> with Widg
                     children: [
                       Expanded(
                         child: OutlinedButton.icon(
-                          onPressed: () => _showRejectionDialog(leaveId, employeeName),
+                          onPressed: _isLoading 
+                            ? null 
+                            : () {
+                                print('[Leave Approval] Reject button pressed for leaveId: $leaveId');
+                                _showRejectionDialog(leaveId, employeeName);
+                              },
                           icon: const Icon(Icons.close, size: 18),
                           label: const Text('ปฏิเสธ'),
                           style: OutlinedButton.styleFrom(
@@ -895,7 +1008,12 @@ class _LeaveManagementScreenState extends State<LeaveManagementScreen> with Widg
                       Expanded(
                         flex: 2,
                         child: ElevatedButton.icon(
-                          onPressed: () => _showApprovalDialog(leaveId, employeeName),
+                          onPressed: _isLoading 
+                            ? null 
+                            : () {
+                                print('[Leave Approval] Approve button pressed for leaveId: $leaveId');
+                                _showApprovalDialog(leaveId, employeeName);
+                              },
                           icon: const Icon(Icons.check, size: 18),
                           label: const Text('อนุมัติ'),
                           style: ElevatedButton.styleFrom(

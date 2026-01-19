@@ -32,36 +32,35 @@ class SalaryService extends ChangeNotifier {
       final token = prefs.getString('auth_token');
       final now = DateTime.now();
 
-      // ลองเรียก API ก่อน
-      if (token != null) {
-        try {
-          final response = await http.get(
-            Uri.parse('${ApiConfig.salarySummaryUrl}?year=${now.year}&month=${now.month}'),
-            headers: ApiConfig.headersWithAuth(token),
-          ).timeout(const Duration(seconds: 5));
-
-          if (response.statusCode == 200) {
-            final data = json.decode(response.body) as Map<String, dynamic>;
-            _currentSalary = Salary.fromJson(data);
-            _errorMessage = null;
-            _isLoading = false;
-            notifyListeners();
-            return;
-          }
-        } catch (e) {
-          debugPrint('API call failed, using mock data: $e');
-        }
+      if (token == null) {
+        _errorMessage = 'ไม่พบ Token กรุณาเข้าสู่ระบบใหม่';
+        _currentSalary = null;
+        return;
       }
 
-      // ใช้ Mock data
-      await Future.delayed(const Duration(milliseconds: 500));
-      _currentSalary = _createMockSalary(now.year + 543, now.month);
-      _errorMessage = null;
+      try {
+        final response = await http.get(
+          Uri.parse('${ApiConfig.salarySummaryUrl}?year=${now.year}&month=${now.month}'),
+          headers: ApiConfig.headersWithAuth(token),
+        ).timeout(const Duration(seconds: 10));
+
+        if (response.statusCode == 200) {
+          final data = json.decode(response.body) as Map<String, dynamic>;
+          _currentSalary = Salary.fromJson(data);
+          _errorMessage = null;
+        } else {
+          _errorMessage = 'ไม่สามารถโหลดข้อมูลเงินเดือนได้ (HTTP ${response.statusCode})';
+          _currentSalary = null;
+        }
+      } catch (e) {
+        debugPrint('Error calling salary summary API: $e');
+        _errorMessage = 'เกิดข้อผิดพลาดในการโหลดข้อมูลเงินเดือน: ${e.toString()}';
+        _currentSalary = null;
+      }
     } catch (e) {
       debugPrint('Error fetching current salary: $e');
-      final now = DateTime.now();
-      _currentSalary = _createMockSalary(now.year + 543, now.month);
-      _errorMessage = null;
+      _errorMessage = 'เกิดข้อผิดพลาดในการโหลดข้อมูลเงินเดือน: ${e.toString()}';
+      _currentSalary = null;
     } finally {
       _isLoading = false;
       notifyListeners();
@@ -74,39 +73,9 @@ class SalaryService extends ChangeNotifier {
     notifyListeners();
 
     try {
-      // TODO: เรียก API จริง
-      // final response = await http.get(Uri.parse('${ApiConfig.baseUrl}/api/salary/history'));
-      
-      // Mock data สำหรับทดสอบ
-      await Future.delayed(const Duration(seconds: 1));
-      
-      final now = DateTime.now();
-      _salaryHistory = List.generate(6, (index) {
-        final month = now.month - index;
-        final year = month <= 0 ? now.year - 1 : now.year;
-        final adjustedMonth = month <= 0 ? month + 12 : month;
-        
-        return Salary(
-          month: _getThaiMonth(adjustedMonth),
-          year: year + 543,
-          paymentDate: DateTime(year, adjustedMonth, 25),
-          baseSalary: 25000,
-          bonus: index == 0 ? 2000 : 0,
-          overtime: 1000 + (index * 200),
-          allowance: 3000,
-          transportAllowance: 1000,
-          otherIncome: 0,
-          tax: 1200,
-          socialSecurity: 750,
-          providentFund: 500,
-          loan: 0,
-          fine: 0,
-          otherDeductions: 0,
-          workDays: 22,
-          leaveDays: index % 3 == 0 ? 1 : 0,
-          overtimeHours: 8 + (index * 2),
-        );
-      });
+      // TODO: ถ้ามี endpoint ประวัติเงินเดือนจริง ให้เรียกที่นี่
+      // ตอนนี้ยังไม่มีจึงเคลียร์ list และรอให้ backend รองรับในอนาคต
+      _salaryHistory = [];
     } catch (e) {
       debugPrint('Error fetching salary history: $e');
     } finally {
@@ -125,12 +94,9 @@ class SalaryService extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('auth_token');
 
-      // Mock data สำหรับทดสอบ - ถ้าไม่มี token หรือ API ไม่พร้อม
       if (token == null) {
-        // ใช้ mock data
-        await Future.delayed(const Duration(milliseconds: 500));
-        _selectedSalary = _createMockSalary(year, month);
-        _errorMessage = null;
+        _errorMessage = 'ไม่พบ Token กรุณาเข้าสู่ระบบใหม่';
+        _selectedSalary = null;
         _isLoading = false;
         notifyListeners();
         return;
@@ -140,30 +106,25 @@ class SalaryService extends ChangeNotifier {
         final response = await http.get(
           Uri.parse('${ApiConfig.salarySummaryUrl}?year=$year&month=$month'),
           headers: ApiConfig.headersWithAuth(token),
-        ).timeout(const Duration(seconds: 5));
+        ).timeout(const Duration(seconds: 10));
 
         if (response.statusCode == 200) {
           final data = json.decode(response.body) as Map<String, dynamic>;
           _selectedSalary = Salary.fromJson(data);
           _errorMessage = null;
         } else {
-          // ถ้า API ไม่พร้อม ใช้ mock data
-          await Future.delayed(const Duration(milliseconds: 500));
-          _selectedSalary = _createMockSalary(year, month);
-          _errorMessage = null;
+          _errorMessage = 'ไม่สามารถโหลดข้อมูลเงินเดือนได้ (HTTP ${response.statusCode})';
+          _selectedSalary = null;
         }
       } catch (e) {
-        // ถ้าเกิด error ใช้ mock data
-        debugPrint('API Error, using mock data: $e');
-        await Future.delayed(const Duration(milliseconds: 500));
-        _selectedSalary = _createMockSalary(year, month);
-        _errorMessage = null;
+        debugPrint('API Error while loading salary summary: $e');
+        _errorMessage = 'เกิดข้อผิดพลาดในการโหลดข้อมูลเงินเดือน: ${e.toString()}';
+        _selectedSalary = null;
       }
     } catch (e) {
       debugPrint('Error fetching salary summary: $e');
-      // ใช้ mock data แทน
-      _selectedSalary = _createMockSalary(year, month);
-      _errorMessage = null;
+      _errorMessage = 'เกิดข้อผิดพลาดในการโหลดข้อมูลเงินเดือน: ${e.toString()}';
+      _selectedSalary = null;
     } finally {
       _isLoading = false;
       notifyListeners();
