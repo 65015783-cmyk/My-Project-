@@ -12,6 +12,7 @@ import 'package:open_filex/open_filex.dart';
 import 'dart:io';
 import 'dart:async';
 import 'package:intl/intl.dart';
+import 'package:google_fonts/google_fonts.dart';
 import '../../config/api_config.dart';
 import 'leave_list_screen.dart';
 
@@ -282,6 +283,7 @@ class _HRDashboardScreenState extends State<HRDashboardScreen> {
       int late = 0;
       Set<String> attendedUserIds = {};
       Set<String> leaveUserIds = {};
+      Set<String> processedLeaveKeys = {}; // ใช้เก็บ key ที่เคยประมวลผลแล้ว (userId หรือ name+dept)
 
       // ประมวลผลข้อมูลลา
       if (leaveResponse.statusCode == 200) {
@@ -350,46 +352,120 @@ class _HRDashboardScreenState extends State<HRDashboardScreen> {
                   !selected.isAfter(end);
 
               if (isInRange) {
-                final userId = leave['user_id']?.toString() ??
-                    leave['employee_id']?.toString() ??
-                    leave['userId']?.toString() ??
-                    leave['user']?.toString();
+                // ตรวจสอบ userId จากหลายแหล่ง และใช้ค่าที่ไม่เป็น null/empty
+                final userId = (leave['user_id']?.toString()?.trim().isNotEmpty == true
+                        ? leave['user_id']?.toString()?.trim()
+                        : null) ??
+                    (leave['employee_id']?.toString()?.trim().isNotEmpty == true
+                        ? leave['employee_id']?.toString()?.trim()
+                        : null) ??
+                    (leave['userId']?.toString()?.trim().isNotEmpty == true
+                        ? leave['userId']?.toString()?.trim()
+                        : null) ??
+                    (leave['user']?.toString()?.trim().isNotEmpty == true
+                        ? leave['user']?.toString()?.trim()
+                        : null);
 
-                if (userId != null) {
-                  leaveUserIds.add(userId);
+                // ใช้ employee_name เป็น fallback ถ้าไม่มี userId
+                final employeeName = (leave['employee_name']?.toString()?.trim() ?? 
+                                    leave['employeeName']?.toString()?.trim() ?? 
+                                    'ไม่ทราบชื่อ').trim();
+                final department = (leave['department']?.toString()?.trim() ?? '-').trim();
 
-                  // เก็บรายละเอียด "หนึ่ง record ต่อ 1 คน" สำหรับหน้ารายการ
-                  // ถ้ามี userId นี้แล้ว ไม่ต้องเพิ่มซ้ำ เพื่อตัวเลขให้ตรงกับจำนวนคนที่ลา
-                  final alreadyExists = _dailyLeaveDetails.any(
-                    (e) => e['userId']?.toString() == userId,
-                  );
-
-                  if (!alreadyExists) {
-                    final empInfo = _employeeSummary?.firstWhere(
-                      (e) =>
-                          (e['user_id']?.toString() ??
-                                  e['employee_id']?.toString() ??
-                                  e['id']?.toString()) ==
-                          userId,
-                      orElse: () => null,
-                    );
-
-                    _dailyLeaveDetails.add({
-                      'userId': userId,
-                      'name': empInfo != null
-                          ? (empInfo['full_name']?.toString() ??
-                              empInfo['name']?.toString() ??
-                              'ไม่ทราบชื่อ')
-                          : (leave['employee_name']?.toString() ?? 'ไม่ทราบชื่อ'),
-                      'department': empInfo != null
-                          ? (empInfo['department']?.toString() ?? '-')
-                          : '-',
-                      'status': status,
+                // สร้าง key สำหรับตรวจสอบซ้ำ (ใช้ userId ถ้ามี ไม่เช่นนั้นใช้ชื่อ+แผนก)
+                String? leaveKey;
+                if (userId != null && userId.isNotEmpty) {
+                  leaveKey = 'user_$userId';
+                } else {
+                  final normalizedName = employeeName.toLowerCase().trim();
+                  final normalizedDept = department.toLowerCase().trim();
+                  if (normalizedName.isNotEmpty && normalizedName != 'ไม่ทราบชื่อ') {
+                    leaveKey = 'name_${normalizedName}_${normalizedDept}';
+                  }
+                }
+                
+                // ตรวจสอบว่าคีย์นี้เคยประมวลผลแล้วหรือยัง
+                bool alreadyExists = false;
+                if (leaveKey != null) {
+                  alreadyExists = processedLeaveKeys.contains(leaveKey);
+                  
+                  // ถ้ายังไม่เจอซ้ำ ให้ตรวจสอบในรายละเอียดที่เก็บไว้แล้วด้วย (เผื่อกรณีที่ key ต่างกันแต่เป็นคนเดียวกัน)
+                  if (!alreadyExists && userId != null && userId.isNotEmpty) {
+                    alreadyExists = _dailyLeaveDetails.any((e) {
+                      final existingUserId = e['userId']?.toString()?.trim();
+                      return existingUserId != null && existingUserId == userId;
                     });
                   }
+                  
+                  // ตรวจสอบด้วยชื่อ+แผนกด้วย (เพื่อป้องกันกรณีที่ userId ไม่ตรงกัน)
+                  if (!alreadyExists && employeeName.toLowerCase().trim().isNotEmpty) {
+                    final normalizedName = employeeName.toLowerCase().trim();
+                    final normalizedDept = department.toLowerCase().trim();
+                    alreadyExists = _dailyLeaveDetails.any((e) {
+                      final existingName = (e['name']?.toString() ?? '').toLowerCase().trim();
+                      final existingDept = (e['department']?.toString() ?? '-').toLowerCase().trim();
+                      
+                      // ชื่อต้องตรงกัน
+                      if (existingName != normalizedName || existingName.isEmpty) {
+                        return false;
+                      }
+                      
+                      // ถ้าชื่อตรงกันและแผนกไม่ขัดแย้ง = เป็นคนเดียวกัน
+                      // ถ้าทั้งสองมีแผนกที่เหมือนกัน หรือมีฝั่งหนึ่งเป็น "-" = เป็นคนเดียวกัน
+                      return normalizedDept == '-' || existingDept == '-' || existingDept == normalizedDept;
+                    });
+                  }
+                }
+
+                if (!alreadyExists && leaveKey != null) {
+                  // เพิ่ม key ลงใน Set เพื่อป้องกันการประมวลผลซ้ำ
+                  processedLeaveKeys.add(leaveKey);
+                  // เพิ่ม userId ในการนับ (ถ้ามี)
+                  if (userId != null && userId.isNotEmpty) {
+                    leaveUserIds.add(userId);
+                  } else {
+                    // ถ้าไม่มี userId ให้ใช้ชื่อ+แผนกเป็น key
+                    leaveUserIds.add('name_${employeeName.toLowerCase().trim()}_${department.toLowerCase().trim()}');
+                  }
+
+                  // ดึงข้อมูลพนักงานจาก employee summary
+                  final empInfo = userId != null && userId.isNotEmpty
+                      ? _employeeSummary?.firstWhere(
+                          (e) {
+                            final empId = e['user_id']?.toString()?.trim() ??
+                                e['employee_id']?.toString()?.trim() ??
+                                e['id']?.toString()?.trim();
+                            return empId != null && empId == userId;
+                          },
+                          orElse: () => null,
+                        )
+                      : null;
+
+                  // ใช้ข้อมูลจาก employee summary ถ้ามี ไม่เช่นนั้นใช้จาก leave record
+                  final finalName = empInfo != null
+                      ? (empInfo['full_name']?.toString()?.trim() ??
+                          empInfo['name']?.toString()?.trim() ??
+                          employeeName)
+                      : employeeName;
+                  final finalDept = empInfo != null
+                      ? (empInfo['department']?.toString()?.trim() ?? '-')
+                      : department;
+
+                  _dailyLeaveDetails.add({
+                    'userId': userId,
+                    'name': finalName,
+                    'department': finalDept.isNotEmpty ? finalDept : '-',
+                    'status': status,
+                    // เก็บช่วงเวลาเริ่ม-สิ้นสุดการลาไว้ใช้ในรายงาน (Excel/PDF)
+                    'leaveStart': start,
+                    'leaveEnd': end,
+                  });
 
                   print(
-                      '[HR Dashboard] Counted leave for userId=$userId, status=$status (start=$startDate, end=$endDate, selected=$dateStr)');
+                      '[HR Dashboard] Added leave: userId=$userId, name=$finalName, dept=$finalDept, status=$status');
+                } else {
+                  print(
+                      '[HR Dashboard] Skipped duplicate leave: userId=$userId, name=$employeeName');
                 }
               }
             } catch (e) {
@@ -2010,14 +2086,19 @@ class _HRDashboardScreenState extends State<HRDashboardScreen> {
                 child: const Icon(Icons.calendar_today, color: Colors.blue, size: 20),
               ),
               const SizedBox(width: 12),
-              const Expanded(
+              Expanded(
                 child: Text(
                   'สรุปรายวัน',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.black87,
-                  ),
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.black87,
+                      ) ??
+                      const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.black87,
+                      ),
                 ),
               ),
               PopupMenuButton<String>(
@@ -2108,11 +2189,16 @@ class _HRDashboardScreenState extends State<HRDashboardScreen> {
                     const SizedBox(width: 8),
                     Text(
                       '${_selectedDate.day}/${_selectedDate.month}/${_selectedDate.year}',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.blue[700],
-                      ),
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.blue[700],
+                          ) ??
+                          TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.blue[700],
+                          ),
                     ),
                     const Spacer(),
                     Icon(Icons.arrow_drop_down, color: Colors.blue[700]),
@@ -2225,19 +2311,29 @@ class _HRDashboardScreenState extends State<HRDashboardScreen> {
             children: [
               Text(
                 'รวมทั้งหมด',
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.grey[700],
-                ),
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.grey[700],
+                    ) ??
+                    TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.grey[700],
+                    ),
               ),
               Text(
                 '$totalEmployees คน',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.grey[800],
-                ),
+                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.grey[800],
+                    ) ??
+                    TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.grey[800],
+                    ),
               ),
             ],
           ),
@@ -2275,28 +2371,42 @@ class _HRDashboardScreenState extends State<HRDashboardScreen> {
               const SizedBox(height: 8),
               Text(
                 value,
-                style: TextStyle(
-                  fontSize: 28,
-                  fontWeight: FontWeight.bold,
-                  color: color,
-                ),
+                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                      fontSize: 28,
+                      fontWeight: FontWeight.w700,
+                      color: color,
+                    ) ??
+                    TextStyle(
+                      fontSize: 28,
+                      fontWeight: FontWeight.w700,
+                      color: color,
+                    ),
               ),
               const SizedBox(height: 4),
               Text(
                 title,
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: color,
-                ),
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: color,
+                    ) ??
+                    TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: color,
+                    ),
               ),
               if (subtitle != null)
                 Text(
                   subtitle,
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: Colors.grey[600],
-                  ),
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        fontSize: 11,
+                        color: Colors.grey[600],
+                      ) ??
+                      TextStyle(
+                        fontSize: 11,
+                        color: Colors.grey[600],
+                      ),
                 ),
             ],
           ),
@@ -2395,7 +2505,20 @@ class _HRDashboardScreenState extends State<HRDashboardScreen> {
         break;
       case 'leave':
         title = 'รายชื่อพนักงานที่ลา';
-        items = _dailyLeaveDetails;
+        // ลบชื่อซ้ำ: นับ 1 คนต่อ 1 รายชื่อเท่านั้น (อิงจาก userId + ชื่อ + แผนก)
+        final seenKeys = <String>{};
+        items = _dailyLeaveDetails.where((e) {
+          final userId = e['userId']?.toString().trim() ?? '';
+          final name = (e['name']?.toString() ?? '').toLowerCase().trim();
+          final dept = (e['department']?.toString() ?? '').toLowerCase().trim();
+          if (name.isEmpty) return false;
+          final key = '${userId}__${name}__${dept}';
+          if (seenKeys.contains(key)) {
+            return false;
+          }
+          seenKeys.add(key);
+          return true;
+        }).toList();
         break;
       case 'absent':
         title = 'รายชื่อพนักงานที่ขาดงาน';
@@ -2537,7 +2660,7 @@ class _HRDashboardScreenState extends State<HRDashboardScreen> {
       // สร้าง Excel workbook
       final excel = Excel.createExcel();
       
-      // ใช้ Sheet1 ที่สร้างอัตโนมัติ (ไม่ต้องลบ)
+      // ใช้ Sheet1 ที่สร้างอัตโนมัติสำหรับสรุปภาพรวม
       final sheet = excel.tables['Sheet1'];
       
       if (sheet == null) {
@@ -2554,54 +2677,94 @@ class _HRDashboardScreenState extends State<HRDashboardScreen> {
       // "รวมทั้งหมด" = มา + ลา + ขาด (ไม่รวมมาสายซ้ำ)
       final totalEmployees = attended + onLeave + absent;
 
-      // เขียนข้อมูลโดยตรงผ่าน cell index เพื่อให้แน่ใจว่าข้อมูลถูกเขียน
-      // Row 0: Title
-      sheet.cell(CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: 0)).value = TextCellValue('รายงานสรุปการเข้างานรายวัน');
-      
-      // Row 1: Date
-      sheet.cell(CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: 1)).value = TextCellValue('วันที่');
-      sheet.cell(CellIndex.indexByColumnRow(columnIndex: 1, rowIndex: 1)).value = TextCellValue(dateStr);
-      
-      // Row 3: Header
-      sheet.cell(CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: 3)).value = TextCellValue('ประเภท');
-      sheet.cell(CellIndex.indexByColumnRow(columnIndex: 1, rowIndex: 3)).value = TextCellValue('จำนวน (คน)');
-      
-      // Row 4-8: Data
-      sheet.cell(CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: 4)).value = TextCellValue('มา');
-      sheet.cell(CellIndex.indexByColumnRow(columnIndex: 1, rowIndex: 4)).value = IntCellValue(attended);
-      
-      sheet.cell(CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: 5)).value = TextCellValue('มาสาย');
-      sheet.cell(CellIndex.indexByColumnRow(columnIndex: 1, rowIndex: 5)).value = IntCellValue(late);
-      
-      sheet.cell(CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: 6)).value = TextCellValue('ลา');
-      sheet.cell(CellIndex.indexByColumnRow(columnIndex: 1, rowIndex: 6)).value = IntCellValue(onLeave);
-      
-      sheet.cell(CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: 7)).value = TextCellValue('ขาด');
-      sheet.cell(CellIndex.indexByColumnRow(columnIndex: 1, rowIndex: 7)).value = IntCellValue(absent);
-      
-      sheet.cell(CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: 8)).value = TextCellValue('รวมทั้งหมด');
-      sheet.cell(CellIndex.indexByColumnRow(columnIndex: 1, rowIndex: 8)).value = IntCellValue(totalEmployees);
-      
-      // Debug: ตรวจสอบจำนวนแถวที่เขียน
-      print('[Excel Export] Data written: attended=$attended, late=$late, onLeave=$onLeave, absent=$absent, total=$totalEmployees');
+      // ไม่ต้องมีหัวรายงานด้านบนแล้ว เริ่มต้นที่ตารางรายละเอียดเลย
+      // เพิ่มตารางรายละเอียดพนักงานใน Sheet เดียวกัน
+      sheet.appendRow([
+        TextCellValue('วันที่'),
+        TextCellValue('ชื่อ-นามสกุล'),
+        TextCellValue('แผนก'),
+        TextCellValue('ตำแหน่ง'),
+        TextCellValue('สถานะ'),
+        TextCellValue('เวลา / ช่วงเวลา'),
+      ]);
 
-      // Style header (row index 3 คือแถว "ประเภท, จำนวน (คน)")
-      try {
-        final headerStyle = CellStyle(
-          bold: true,
-          backgroundColorHex: ExcelColor.fromHexString('#E0E0E0'),
-          horizontalAlign: HorizontalAlign.Center,
-        );
-        final headerRow = sheet.row(3);
-        if (headerRow != null) {
-          final cell0 = sheet.cell(CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: 3));
-          final cell1 = sheet.cell(CellIndex.indexByColumnRow(columnIndex: 1, rowIndex: 3));
-          cell0.cellStyle = headerStyle;
-          cell1.cellStyle = headerStyle;
+      // ฟังก์ชันช่วยดึงข้อมูลตำแหน่งจาก _employeeSummary ตาม userId
+      String _getPositionForUser(String? userId) {
+        if (userId == null || userId.isEmpty || _employeeSummary == null) {
+          return '-';
         }
-      } catch (e) {
-        print('Error applying header style: $e');
+        try {
+          final emp = _employeeSummary!.firstWhere(
+            (e) {
+              final empId = e['user_id']?.toString() ??
+                  e['employee_id']?.toString() ??
+                  e['id']?.toString();
+              return empId != null && empId == userId;
+            },
+          ) as Map<String, dynamic>;
+          return emp['position']?.toString() ?? '-';
+        } catch (_) {
+          return '-';
+        }
       }
+
+      // รวมรายละเอียดจากทุกประเภทสถานะมาเขียนลงใน sheet เดียว
+      void _appendDetails(
+        List<Map<String, dynamic>> items,
+        String statusLabel,
+      ) {
+        for (final item in items) {
+          final userId = item['userId']?.toString();
+          final name = item['name']?.toString() ?? '-';
+          final department = item['department']?.toString() ?? '-';
+          final position = _getPositionForUser(userId);
+
+          String timeText = '-';
+
+          // เวลาเข้า (สำหรับ มา / มาสาย)
+          if (item['checkIn'] is DateTime) {
+            final dt = item['checkIn'] as DateTime;
+            final hh = dt.hour.toString().padLeft(2, '0');
+            final mm = dt.minute.toString().padLeft(2, '0');
+            timeText = '$hh:$mm น.';
+          }
+
+          // ช่วงเวลาลา (สำหรับ ลา)
+          if (item['leaveStart'] is DateTime && item['leaveEnd'] is DateTime) {
+            final start = item['leaveStart'] as DateTime;
+            final end = item['leaveEnd'] as DateTime;
+            final dateFmt = DateFormat('dd/MM/yyyy', 'th');
+            final startStr = dateFmt.format(start);
+            final endStr = dateFmt.format(end);
+            timeText = startStr == endStr ? 'ทั้งวัน $startStr' : '$startStr - $endStr';
+          }
+
+          sheet.appendRow([
+            TextCellValue(dateStr),
+            TextCellValue(name),
+            TextCellValue(department),
+            TextCellValue(position),
+            TextCellValue(statusLabel),
+            TextCellValue(timeText),
+          ]);
+        }
+      }
+
+      // เขียนข้อมูลรายละเอียดแยกตามสถานะ
+      _appendDetails(_dailyPresentDetails, 'มา');
+      _appendDetails(_dailyLateDetails, 'มาสาย');
+      _appendDetails(_dailyLeaveDetails, 'ลา');
+      _appendDetails(_dailyAbsentDetails, 'ขาด');
+
+      // เพิ่มสรุปจำนวนคนทั้งหมด (รวม มา / มาสาย / ลา / ขาด) ไว้ด้านล่างสุดของชีต
+      sheet.appendRow([]);
+      sheet.appendRow([
+        TextCellValue('รวมจำนวนพนักงานทั้งหมด (มา / มาสาย / ลา / ขาด)'),
+        IntCellValue(totalEmployees),
+      ]);
+
+      // Debug: ตรวจสอบจำนวนแถวที่เขียน
+      print('[Excel Export] Data written (bottom summary): attended=$attended, late=$late, onLeave=$onLeave, absent=$absent, total=$totalEmployees');
 
       // Save Excel file
       final output = await getTemporaryDirectory();

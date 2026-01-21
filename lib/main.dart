@@ -55,28 +55,31 @@ class MyApp extends StatelessWidget {
               Locale('th', 'TH'),
               Locale('en', ''),
             ],
-        theme: ThemeData(
-          colorScheme: ColorScheme.fromSeed(
-            seedColor: const Color(0xFF2196F3),
-            primary: const Color(0xFF2196F3),
-            secondary: const Color(0xFF64B5F6),
-            surface: Colors.white,
-          ),
-          textTheme: GoogleFonts.promptTextTheme(),
-          useMaterial3: true,
-          cardTheme: CardTheme(
-            elevation: 2,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
+            theme: ThemeData(
+              colorScheme: ColorScheme.fromSeed(
+                seedColor: const Color(0xFF2196F3),
+                primary: const Color(0xFF2196F3),
+                secondary: const Color(0xFF64B5F6),
+                surface: Colors.white,
+              ),
+              // ฟอนต์สไตล์โมเดิร์นสำหรับ HR App ทั้งแอป (Prompt)
+              // ถ้าอยากเปลี่ยนฟอนต์ครั้งหน้า แก้แค่สองบรรทัดนี้พอ
+              fontFamily: GoogleFonts.prompt().fontFamily,
+              textTheme: GoogleFonts.promptTextTheme(),
+              useMaterial3: true,
+              cardTheme: CardTheme(
+                elevation: 2,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+              ),
+              appBarTheme: const AppBarTheme(
+                elevation: 0,
+                backgroundColor: Colors.white,
+                foregroundColor: Colors.black,
+                centerTitle: true,
+              ),
             ),
-          ),
-          appBarTheme: const AppBarTheme(
-            elevation: 0,
-            backgroundColor: Colors.white,
-            foregroundColor: Colors.black,
-            centerTitle: true,
-          ),
-        ),
             routes: {
               '/home': (context) => const MainScreen(),
               '/login': (context) => const LoginScreen(),

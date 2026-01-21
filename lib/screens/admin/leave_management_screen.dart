@@ -165,19 +165,31 @@ class _LeaveManagementScreenState extends State<LeaveManagementScreen> with Widg
       print('[Leave Approval] Base URL: ${ApiConfig.leaveStatusUrl}');
       print('[Leave Approval] Token exists: ${token.isNotEmpty}');
 
-      final response = await http.patch(
-        Uri.parse(url),
-        headers: ApiConfig.headersWithAuth(token),
-        body: json.encode({
+      final requestBody = {
           'status': status,
           if (rejectionReason != null && rejectionReason.isNotEmpty) 'rejectionReason': rejectionReason,
-        }),
+      };
+      print('[Leave Approval] Request body: ${json.encode(requestBody)}');
+
+      http.Response response;
+      try {
+        response = await http.patch(
+          Uri.parse(url),
+          headers: {
+            ...ApiConfig.headersWithAuth(token),
+            'Content-Type': 'application/json',
+          },
+          body: json.encode(requestBody),
       ).timeout(
         const Duration(seconds: 15),
         onTimeout: () {
           throw Exception('การเชื่อมต่อหมดเวลา กรุณาลองอีกครั้ง');
         },
       );
+      } catch (e) {
+        print('[Leave Approval] Request error: $e');
+        rethrow;
+      }
 
       print('[Leave Approval] Response status: ${response.statusCode}');
       print('[Leave Approval] Response body: ${response.body}');
