@@ -30,6 +30,15 @@ class ApiConfig {
   static String get notificationsUrl => '$baseUrl/api/notifications';
   static String get dailyAttendanceSummaryUrl => '$baseUrl/api/admin/daily-attendance-summary';
   
+  // Overtime Endpoints
+  static String get overtimeMyRequestsUrl => '$baseUrl/api/overtime/my-requests';
+  static String get overtimeAllUrl => '$baseUrl/api/overtime/all';
+  static String get overtimePendingUrl => '$baseUrl/api/overtime/pending';
+  static String get overtimeRequestUrl => '$baseUrl/api/overtime/request';
+  static String get overtimeApproveUrl => '$baseUrl/api/overtime/approve';
+  static String get overtimeSummaryUrl => '$baseUrl/api/overtime/summary';
+  static String get overtimeRatesUrl => '$baseUrl/api/overtime/rates';
+  
   // HR Salary Management Endpoints
   static String get hrSalarySummaryUrl => '$baseUrl/api/hr/salary/summary';
   static String get hrSalaryEmployeesUrl => '$baseUrl/api/hr/salary/employees';

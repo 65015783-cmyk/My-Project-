@@ -83,15 +83,22 @@ class _HRDashboardScreenState extends State<HRDashboardScreen> {
       final token = prefs.getString('auth_token');
 
       if (token == null) {
-        setState(() {
-          _isLoading = false;
-        });
+        if (mounted) {
+          setState(() {
+            _isLoading = false;
+          });
+        }
         return;
       }
 
       final response = await http.get(
         Uri.parse(ApiConfig.leaveSummaryUrl),
         headers: ApiConfig.headersWithAuth(token),
+      ).timeout(
+        const Duration(seconds: 15),
+        onTimeout: () {
+          throw TimeoutException('การดึงข้อมูลสรุปวันลาใช้เวลานานเกินไป');
+        },
       );
 
       print('[HR Dashboard] Response status: ${response.statusCode}');
@@ -132,10 +139,10 @@ class _HRDashboardScreenState extends State<HRDashboardScreen> {
       }
     } catch (e) {
       print('Error loading leave summary: $e');
-      setState(() {
-        _isLoading = false;
-      });
       if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('เกิดข้อผิดพลาด: ${e.toString()}'),
@@ -305,35 +312,45 @@ class _HRDashboardScreenState extends State<HRDashboardScreen> {
                          leave['end_date_time']?.toString();
           final status = leave['status']?.toString() ?? '';
           
+          // ใช้ employee_name เพื่อ debug
+          final employeeName = (leave['employee_name']?.toString()?.trim() ?? 
+                              leave['employeeName']?.toString()?.trim() ?? 
+                              'ไม่ทราบชื่อ').trim();
+          
           // ตรวจสอบเฉพาะใบลาที่ "ถือว่ายังมีผลในวันนี้"
           // เดิมนับเฉพาะที่อนุมัติแล้ว (approved) → ทำให้คนที่ลาวันนี้แต่รออนุมัติไม่ถูกนับ
           // ปรับให้รวมสถานะ pending ด้วย (pending, รออนุมัติ, pending_approval)
-          if (startDate != null && endDate != null) {
-            final statusLower = status.toLowerCase().trim();
+          if (startDate == null || endDate == null) {
+            print('[HR Dashboard] Skip leave for $employeeName: missing startDate or endDate. startDate=$startDate, endDate=$endDate');
+            continue;
+          }
+          
+          final statusLower = status.toLowerCase().trim();
 
-            // รองรับสถานะทุกรูปแบบ ทั้งเต็มวัน/ครึ่งวัน โดยดูจากการมีคำว่า approved / pending / อนุมัติ / รออนุมัติ
-            final isApproved = statusLower == 'approved' ||
-                statusLower == 'อนุมัติ' ||
-                statusLower.startsWith('approved') ||
-                statusLower.startsWith('อนุมัติ') ||
-                statusLower.contains('approved') ||
-                statusLower.contains('อนุมัติ');
+          // รองรับสถานะทุกรูปแบบ ทั้งเต็มวัน/ครึ่งวัน โดยดูจากการมีคำว่า approved / pending / อนุมัติ / รออนุมัติ
+          final isApproved = statusLower == 'approved' ||
+              statusLower == 'อนุมัติ' ||
+              statusLower.startsWith('approved') ||
+              statusLower.startsWith('อนุมัติ') ||
+              statusLower.contains('approved') ||
+              statusLower.contains('อนุมัติ');
 
-            final isPending = statusLower == 'pending' ||
-                statusLower == 'รออนุมัติ' ||
-                statusLower == 'pending_approval' ||
-                statusLower.startsWith('pending') ||
-                statusLower.contains('pending') ||
-                statusLower.contains('รออนุมัติ');
+          final isPending = statusLower == 'pending' ||
+              statusLower == 'รออนุมัติ' ||
+              statusLower == 'pending_approval' ||
+              statusLower.startsWith('pending') ||
+              statusLower.contains('pending') ||
+              statusLower.contains('รออนุมัติ');
 
-            // ถ้าเป็น reject/ปฏิเสธ ให้ตัดออกแน่นอน
-            final isRejected = statusLower.contains('reject') ||
-                statusLower.contains('ปฏิเสธ');
+          // ถ้าเป็น reject/ปฏิเสธ ให้ตัดออกแน่นอน
+          final isRejected = statusLower.contains('reject') ||
+              statusLower.contains('ปฏิเสธ');
 
-            // ถ้าไม่ใช่ approved หรือ pending (หรือเป็น rejected) ให้ข้าม
-            if (isRejected || !(isApproved || isPending)) {
-              continue;
-            }
+          // ถ้าไม่ใช่ approved หรือ pending (หรือเป็น rejected) ให้ข้าม
+          if (isRejected || !(isApproved || isPending)) {
+            print('[HR Dashboard] Skip leave for $employeeName: status=$status (isApproved=$isApproved, isPending=$isPending, isRejected=$isRejected)');
+            continue;
+          }
 
             try {
               // แปลง start/end ให้เป็น "วันที่ตามเวลาเครื่อง" เพื่อรองรับค่าแบบ ISO8601 + Z จาก DB
@@ -343,14 +360,25 @@ class _HRDashboardScreenState extends State<HRDashboardScreen> {
 
               if (start == null || end == null) {
                 print(
-                    '[HR Dashboard] Skip leave because start/end cannot be parsed. start=$startDate, end=$endDate');
+                    '[HR Dashboard] Skip leave for $employeeName: start/end cannot be parsed. startDate=$startDate, endDate=$endDate');
                 continue;
               }
 
               // ตรวจสอบว่า selected date อยู่ในช่วงวันลาหรือไม่ (รวมทั้งกรณีวันเดียว)
-              final bool isInRange = !selected.isBefore(start) &&
-                  !selected.isAfter(end);
+              // ใช้ DateUtils.isSameDay หรือเปรียบเทียบเฉพาะวันที่ (ไม่รวมเวลา)
+              final selectedDateOnly = DateTime(selected.year, selected.month, selected.day);
+              final startDateOnly = DateTime(start.year, start.month, start.day);
+              final endDateOnly = DateTime(end.year, end.month, end.day);
+              
+              final bool isInRange = !selectedDateOnly.isBefore(startDateOnly) &&
+                  !selectedDateOnly.isAfter(endDateOnly);
 
+              if (!isInRange) {
+                print('[HR Dashboard] Skip leave for $employeeName: date not in range. selected=$dateStr (${selectedDateOnly.toString().split(' ')[0]}), start=${startDateOnly.toString().split(' ')[0]}, end=${endDateOnly.toString().split(' ')[0]}');
+                continue;
+              }
+              
+              // ตรวจสอบอีกครั้งว่าสถานะถูกต้อง (ป้องกันกรณีที่สถานะเปลี่ยนระหว่างการประมวลผล)
               if (isInRange) {
                 // ตรวจสอบ userId จากหลายแหล่ง และใช้ค่าที่ไม่เป็น null/empty
                 final userId = (leave['user_id']?.toString()?.trim().isNotEmpty == true
@@ -366,10 +394,6 @@ class _HRDashboardScreenState extends State<HRDashboardScreen> {
                         ? leave['user']?.toString()?.trim()
                         : null);
 
-                // ใช้ employee_name เป็น fallback ถ้าไม่มี userId
-                final employeeName = (leave['employee_name']?.toString()?.trim() ?? 
-                                    leave['employeeName']?.toString()?.trim() ?? 
-                                    'ไม่ทราบชื่อ').trim();
                 final department = (leave['department']?.toString()?.trim() ?? '-').trim();
 
                 // สร้าง key สำหรับตรวจสอบซ้ำ (ใช้ userId ถ้ามี ไม่เช่นนั้นใช้ชื่อ+แผนก)
@@ -417,6 +441,25 @@ class _HRDashboardScreenState extends State<HRDashboardScreen> {
                   }
                 }
 
+                // ตรวจสอบอีกครั้งว่าสถานะยังถูกต้อง (ป้องกันกรณีที่สถานะเปลี่ยน)
+                final finalStatusCheck = status.toLowerCase().trim();
+                final finalIsApproved = finalStatusCheck == 'approved' ||
+                    finalStatusCheck == 'อนุมัติ' ||
+                    finalStatusCheck.contains('approved') ||
+                    finalStatusCheck.contains('อนุมัติ');
+                final finalIsPending = finalStatusCheck == 'pending' ||
+                    finalStatusCheck == 'รออนุมัติ' ||
+                    finalStatusCheck == 'pending_approval' ||
+                    finalStatusCheck.contains('pending') ||
+                    finalStatusCheck.contains('รออนุมัติ');
+                final finalIsRejected = finalStatusCheck.contains('reject') ||
+                    finalStatusCheck.contains('ปฏิเสธ');
+
+                if (finalIsRejected || !(finalIsApproved || finalIsPending)) {
+                  print('[HR Dashboard] Skip leave for $employeeName: final status check failed. status=$status');
+                  continue;
+                }
+
                 if (!alreadyExists && leaveKey != null) {
                   // เพิ่ม key ลงใน Set เพื่อป้องกันการประมวลผลซ้ำ
                   processedLeaveKeys.add(leaveKey);
@@ -457,21 +500,20 @@ class _HRDashboardScreenState extends State<HRDashboardScreen> {
                     'department': finalDept.isNotEmpty ? finalDept : '-',
                     'status': status,
                     // เก็บช่วงเวลาเริ่ม-สิ้นสุดการลาไว้ใช้ในรายงาน (Excel/PDF)
-                    'leaveStart': start,
-                    'leaveEnd': end,
+                    'leaveStart': startDateOnly,
+                    'leaveEnd': endDateOnly,
                   });
 
                   print(
-                      '[HR Dashboard] Added leave: userId=$userId, name=$finalName, dept=$finalDept, status=$status');
+                      '[HR Dashboard] Added leave: userId=$userId, name=$finalName, dept=$finalDept, status=$status, dateRange=${startDateOnly.toString().split(' ')[0]} to ${endDateOnly.toString().split(' ')[0]}');
                 } else {
                   print(
-                      '[HR Dashboard] Skipped duplicate leave: userId=$userId, name=$employeeName');
+                      '[HR Dashboard] Skipped duplicate leave for $employeeName: userId=$userId, leaveKey=$leaveKey, alreadyExists=$alreadyExists');
                 }
               }
             } catch (e) {
               print('Error parsing leave date: $e');
             }
-          }
         }
       } else {
         // ถ้า leave details API ไม่พร้อม ลองใช้ leave summary

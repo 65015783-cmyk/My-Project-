@@ -423,29 +423,53 @@ class HrSalaryService extends ChangeNotifier {
       _errorMessage = null;
       notifyListeners();
 
-      // ใช้ mock data ตามที่ส่งไปก่อน
-      await Future.delayed(const Duration(milliseconds: 300));
-      
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('auth_token');
+
+      if (token == null) {
+        _errorMessage = 'ไม่พบ Token กรุณาเข้าสู่ระบบใหม่';
+        _payrollOverview = null;
+        _isLoading = false;
+        notifyListeners();
+        return;
+      }
+
       final now = DateTime.now();
       final selectedMonth = month ?? now.month;
       final selectedYear = year ?? now.year;
 
-      // Mock data สำหรับ Payroll Overview
-      _payrollOverview = PayrollOverview(
-        totalGrossSalary: 1250000.00, // ยอดเงินเดือนรวม
-        totalEmployees: 12, // จำนวนพนักงาน 12 คน
-        totalDeductions: 87500.00, // ยอดหักรวม
-        netPay: 1162500.00, // ยอดจ่ายสุทธิ
-        status: PayrollStatus.calculated, // สถานะ: คำนวณแล้ว
-        month: selectedMonth,
-        year: selectedYear,
+      // เรียก API เพื่อคำนวณจากข้อมูลจริง
+      final queryParams = <String, String>{
+        'month': selectedMonth.toString(),
+        'year': selectedYear.toString(),
+      };
+
+      final uri = Uri.parse(ApiConfig.hrPayrollOverviewUrl).replace(
+        queryParameters: queryParams,
       );
 
-      _errorMessage = null;
-      debugPrint('Payroll Overview loaded: ${_payrollOverview?.totalEmployees} employees');
+      final response = await http.get(
+        uri,
+        headers: ApiConfig.headersWithAuth(token),
+      ).timeout(const Duration(seconds: 15));
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body) as Map<String, dynamic>;
+        _payrollOverview = PayrollOverview.fromJson(data);
+        _errorMessage = null;
+        debugPrint('Payroll Overview loaded: ${_payrollOverview?.totalEmployees} employees, Total: ${_payrollOverview?.totalGrossSalary}');
+      } else {
+        final errorData = json.decode(response.body) as Map<String, dynamic>?;
+        _errorMessage = errorData?['message'] ?? 'ไม่สามารถโหลดข้อมูลได้ (HTTP ${response.statusCode})';
+        _payrollOverview = null;
+      }
     } catch (e) {
       debugPrint('Error loading payroll overview: $e');
-      _errorMessage = 'เกิดข้อผิดพลาด: ${e.toString()}';
+      if (e.toString().contains('TimeoutException')) {
+        _errorMessage = 'การเชื่อมต่อหมดเวลา กรุณาลองอีกครั้ง';
+      } else {
+        _errorMessage = 'เกิดข้อผิดพลาด: ${e.toString()}';
+      }
       _payrollOverview = null;
     } finally {
       _isLoading = false;

@@ -14,6 +14,7 @@ import 'services/salary_service.dart';
 import 'services/hr_salary_service.dart';
 import 'services/language_service.dart';
 import 'services/notification_service.dart';
+import 'services/overtime_service.dart';
 import 'screens/splash_screen.dart';
 import 'login/login_screen.dart';
 import 'screens/admin/admin_dashboard.dart';
@@ -39,6 +40,7 @@ class MyApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => HrSalaryService()),
         ChangeNotifierProvider(create: (_) => LanguageService()),
         ChangeNotifierProvider(create: (_) => NotificationService()),
+        ChangeNotifierProvider(create: (_) => OvertimeService()),
       ],
       child: Consumer<LanguageService>(
         builder: (context, languageService, _) {

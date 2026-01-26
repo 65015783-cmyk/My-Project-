@@ -8,6 +8,7 @@ import 'attendance_management_screen.dart';
 import 'leave_management_screen.dart';
 import 'hr_dashboard_screen.dart';
 import 'hr_salary_dashboard_screen.dart';
+import 'overtime_approval_screen.dart';
 
 class AdminDashboard extends StatelessWidget {
   const AdminDashboard({super.key});

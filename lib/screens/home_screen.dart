@@ -11,6 +11,9 @@ import 'request_leave_screen.dart';
 import 'qr_scanner_screen.dart';
 import 'salary_screen.dart';
 import 'admin/leave_management_screen.dart';
+import 'overtime_history_screen.dart';
+import 'request_overtime_screen.dart';
+import 'admin/overtime_approval_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -317,6 +320,29 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             ),
           ],
         ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              child: ActionButton(
+                icon: Icons.access_time,
+                label: 'OT',
+                color: Colors.amber,
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (context) => const OvertimeHistoryScreen(),
+                    ),
+                  );
+                },
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Container(), // Placeholder for future button
+            ),
+          ],
+        ),
       ],
     );
   }
@@ -408,6 +434,29 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               label: const Text('อนุมัติการลา'),
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.orange,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (context) => const OvertimeApprovalScreen(),
+                  ),
+                );
+              },
+              icon: const Icon(Icons.access_time),
+              label: const Text('อนุมัติการขอ OT'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFFFC107),
                 foregroundColor: Colors.white,
                 padding: const EdgeInsets.symmetric(vertical: 14),
                 shape: RoundedRectangleBorder(

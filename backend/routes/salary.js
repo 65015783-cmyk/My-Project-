@@ -110,6 +110,61 @@ router.get('/summary', authenticateToken, async (req, res) => {
       leaveDays = 0;
     }
 
+    // ดึงชั่วโมง OT ที่อนุมัติแล้วในเดือนนี้
+    let overtimeHours = 0;
+    let overtimeAmount = 0;
+    try {
+      console.log(`[Salary Summary] Fetching OT for user_id: ${loginUserId}, month: ${month}, year: ${year}`);
+      
+      // ตรวจสอบว่ามีคำขอ OT อยู่หรือไม่
+      const [otCheck] = await connection.execute(
+        `SELECT id, date, total_hours, status 
+         FROM overtime_requests
+         WHERE user_id = ?
+           AND MONTH(date) = ?
+           AND YEAR(date) = ?`,
+        [loginUserId, month, year]
+      );
+      
+      console.log(`[Salary Summary] Found ${otCheck.length} OT requests for this month/year`);
+      if (otCheck.length > 0) {
+        console.log(`[Salary Summary] Sample OT requests:`, otCheck.map(ot => ({
+          id: ot.id,
+          date: ot.date,
+          hours: ot.total_hours,
+          status: ot.status
+        })));
+      }
+      
+      const [otSummary] = await connection.execute(
+        `SELECT 
+          COALESCE(SUM(total_hours), 0) as total_ot_hours
+         FROM overtime_requests
+         WHERE user_id = ?
+           AND status = 'approved'
+           AND MONTH(date) = ?
+           AND YEAR(date) = ?`,
+        [loginUserId, month, year]
+      );
+
+      overtimeHours = parseFloat(otSummary[0]?.total_ot_hours || 0);
+      
+      console.log(`[Salary Summary] Approved OT Hours: ${overtimeHours}`);
+      
+      // คำนวณค่าล่วงเวลา (อัตรา 1.5 เท่าของเงินเดือนต่อชั่วโมง)
+      // เงินเดือนต่อชั่วโมง = baseSalary / (22 วัน * 8 ชั่วโมง) = baseSalary / 176
+      const hourlyRate = baseSalary / 176;
+      const otRate = hourlyRate * 1.5; // 1.5 เท่า
+      overtimeAmount = overtimeHours * otRate;
+      
+      console.log(`[Salary Summary] Base Salary: ${baseSalary}, Hourly Rate: ${hourlyRate}, OT Rate: ${otRate}`);
+      console.log(`[Salary Summary] OT Hours: ${overtimeHours}, OT Amount: ${overtimeAmount}`);
+    } catch (otError) {
+      console.error('[Salary Summary] Overtime query failed:', otError);
+      overtimeHours = 0;
+      overtimeAmount = 0;
+    }
+
     // ===========================
     // คำนวณเงินเดือนตามกติกาที่กำหนด
     // เงินเดือนใช้ฐานตรงๆ ไม่ลดตามวัน
@@ -119,7 +174,7 @@ router.get('/summary', authenticateToken, async (req, res) => {
     // ===========================
 
     const bonus = 0;
-    const overtimeAmount = 0;
+    // overtimeAmount คำนวณจาก OT ที่อนุมัติแล้ว (ดูด้านบน)
     const allowance = 0;
     const transportAllowance = 0;
     const otherIncome = 0;
@@ -159,7 +214,7 @@ router.get('/summary', authenticateToken, async (req, res) => {
       other_deductions: otherDeductions,
       work_days: workDays,
       leave_days: leaveDays,
-      overtime_hours: 0,
+      overtime_hours: overtimeHours,
     };
 
     return res.json(response);

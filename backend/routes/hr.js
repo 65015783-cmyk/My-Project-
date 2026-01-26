@@ -405,5 +405,111 @@ router.post('/salary/adjust', authenticateToken, requireHR, async (req, res) => 
   }
 });
 
+// ===========================
+// GET /api/hr/payroll/overview - ภาพรวมเงินเดือนประจำเดือน
+// ===========================
+router.get('/payroll/overview', authenticateToken, requireHR, async (req, res) => {
+  let connection;
+  try {
+    const { month, year } = req.query;
+    const selectedMonth = month ? parseInt(month, 10) : new Date().getMonth() + 1;
+    const selectedYear = year ? parseInt(year, 10) : new Date().getFullYear();
+
+    connection = await pool.getConnection();
+
+    // ดึงข้อมูลพนักงานทั้งหมดพร้อมเงินเดือนปัจจุบัน
+    const [employees] = await connection.execute(
+      `SELECT 
+        e.employee_id,
+        e.user_id,
+        COALESCE(current_sal.salary_amount, e.base_salary, 0) as current_salary,
+        e.base_salary
+      FROM employees e
+      LEFT JOIN (
+        SELECT sh1.employee_id, sh1.salary_amount
+        FROM salary_history sh1
+        INNER JOIN (
+          SELECT employee_id, MAX(effective_date) as max_date
+          FROM salary_history
+          GROUP BY employee_id
+        ) latest ON sh1.employee_id = latest.employee_id 
+          AND sh1.effective_date = latest.max_date
+      ) current_sal ON e.employee_id = current_sal.employee_id`
+    );
+
+    let totalGrossSalary = 0.0;
+    let totalDeductions = 0.0;
+    let totalEmployees = 0;
+
+    // คำนวณเงินเดือนและหักของแต่ละพนักงาน
+    for (const emp of employees) {
+      const baseSalary = parseFloat(emp.current_salary || emp.base_salary || 0);
+      if (baseSalary <= 0) continue; // ข้ามพนักงานที่ไม่มีเงินเดือน
+
+      totalEmployees++;
+
+      // คำนวณรายได้รวม (เงินเดือน + OT + อื่นๆ)
+      let grossSalary = baseSalary;
+
+      // ดึงชั่วโมง OT ที่อนุมัติแล้วในเดือนนี้
+      try {
+        const [otSummary] = await connection.execute(
+          `SELECT COALESCE(SUM(total_hours), 0) as total_ot_hours
+           FROM overtime_requests
+           WHERE user_id = ?
+             AND status = 'approved'
+             AND MONTH(date) = ?
+             AND YEAR(date) = ?`,
+          [emp.user_id, selectedMonth, selectedYear]
+        );
+
+        const otHours = parseFloat(otSummary[0]?.total_ot_hours || 0);
+        if (otHours > 0) {
+          // คำนวณค่าล่วงเวลา (1.5 เท่าของเงินเดือนต่อชั่วโมง)
+          const hourlyRate = baseSalary / 176; // 22 วัน * 8 ชั่วโมง
+          const otAmount = otHours * hourlyRate * 1.5;
+          grossSalary += otAmount;
+        }
+      } catch (otError) {
+        console.log(`[Payroll Overview] Error calculating OT for employee ${emp.employee_id}:`, otError.message);
+      }
+
+      totalGrossSalary += grossSalary;
+
+      // คำนวณยอดหัก
+      // ประกันสังคม: 5% ของเงินเดือน (สูงสุด 750 บาท)
+      const socialSecurity = Math.min(baseSalary * 0.05, 750);
+
+      // ฐานภาษี = เงินเดือน - ประกันสังคม
+      const taxableIncome = Math.max(baseSalary - socialSecurity, 0);
+      
+      // ภาษี: 5% ของฐานภาษี
+      const tax = taxableIncome * 0.05;
+
+      totalDeductions += socialSecurity + tax;
+    }
+
+    const netPay = totalGrossSalary - totalDeductions;
+
+    console.log(`[Payroll Overview] Month: ${selectedMonth}, Year: ${selectedYear}`);
+    console.log(`[Payroll Overview] Employees: ${totalEmployees}, Gross: ${totalGrossSalary}, Deductions: ${totalDeductions}, Net: ${netPay}`);
+
+    res.json({
+      total_gross_salary: totalGrossSalary,
+      total_employees: totalEmployees,
+      total_deductions: totalDeductions,
+      net_pay: netPay,
+      status: 'CALCULATED',
+      month: selectedMonth,
+      year: selectedYear,
+    });
+  } catch (error) {
+    console.error('Get payroll overview error:', error);
+    res.status(500).json({ message: 'เกิดข้อผิดพลาดในการคำนวณภาพรวมเงินเดือน' });
+  } finally {
+    if (connection) connection.release();
+  }
+});
+
 module.exports = router;
 
