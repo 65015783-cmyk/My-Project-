@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
+import 'dart:async';
 import '../main.dart';
 import '../config/api_config.dart';
 
@@ -12,6 +13,15 @@ class SplashScreen extends StatefulWidget {
 }
 
 class _SplashScreenState extends State<SplashScreen> {
+  // Helper function เพื่อลบข้อมูล authentication
+  Future<void> _clearAuthData(SharedPreferences prefs) async {
+    await prefs.remove('auth_token');
+    await prefs.remove('role');
+    await prefs.remove('user_id');
+    await prefs.remove('username');
+    await prefs.remove('email');
+  }
+
   @override
   void initState() {
     super.initState();
@@ -38,10 +48,16 @@ class _SplashScreenState extends State<SplashScreen> {
       }
 
       // ตรวจสอบว่า token ยัง valid หรือไม่โดยเรียก profile API
+      // ใช้ timeout เพื่อป้องกันการค้างนานเกินไป
       try {
         final response = await http.get(
           Uri.parse(ApiConfig.profileUrl),
           headers: ApiConfig.headersWithAuth(token),
+        ).timeout(
+          const Duration(seconds: 5),
+          onTimeout: () {
+            throw TimeoutException('Token validation timeout');
+          },
         );
 
         if (!mounted) return;
@@ -61,23 +77,23 @@ class _SplashScreenState extends State<SplashScreen> {
         } else {
           // Token ไม่ valid หรือ expired - ลบ token และไปหน้า login
           print('[SPLASH] Token invalid or expired (status: ${response.statusCode}), redirecting to login');
-          await prefs.remove('auth_token');
-          await prefs.remove('role');
-          await prefs.remove('user_id');
-          await prefs.remove('username');
-          await prefs.remove('email');
+          await _clearAuthData(prefs);
           if (mounted) {
             Navigator.of(context).pushReplacementNamed('/login');
           }
         }
+      } on TimeoutException {
+        // Timeout - ลบ token และไปหน้า login (เพื่อความปลอดภัย)
+        print('[SPLASH] Token validation timeout, redirecting to login');
+        final prefs = await SharedPreferences.getInstance();
+        await _clearAuthData(prefs);
+        if (mounted) {
+          Navigator.of(context).pushReplacementNamed('/login');
+        }
       } catch (e) {
         // Network error หรือ error อื่นๆ - ลบ token และไปหน้า login
         print('[SPLASH] Error validating token: $e, redirecting to login');
-        await prefs.remove('auth_token');
-        await prefs.remove('role');
-        await prefs.remove('user_id');
-        await prefs.remove('username');
-        await prefs.remove('email');
+        await _clearAuthData(prefs);
         if (mounted) {
           Navigator.of(context).pushReplacementNamed('/login');
         }

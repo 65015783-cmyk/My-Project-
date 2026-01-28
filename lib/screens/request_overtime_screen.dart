@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
+import 'package:image_picker/image_picker.dart';
+import 'dart:io';
 import '../services/overtime_service.dart';
 import '../models/overtime_model.dart';
 
@@ -13,12 +15,14 @@ class RequestOvertimeScreen extends StatefulWidget {
 
 class _RequestOvertimeScreenState extends State<RequestOvertimeScreen> {
   final _formKey = GlobalKey<FormState>();
+  final ImagePicker _imagePicker = ImagePicker();
   DateTime _selectedDate = DateTime.now();
   TimeOfDay _startTime = const TimeOfDay(hour: 17, minute: 30);
   TimeOfDay _endTime = const TimeOfDay(hour: 19, minute: 30);
   final _reasonController = TextEditingController();
   bool _isSubmitting = false;
   double _calculatedHours = 0.0;
+  String? _evidenceImagePath; // เก็บ path ของรูปภาพหลักฐาน
 
   // สร้างรายการเวลาสำหรับ dropdown (ทุก 15 นาที)
   List<TimeOfDay> _getTimeOptions() {
@@ -122,6 +126,109 @@ class _RequestOvertimeScreenState extends State<RequestOvertimeScreen> {
     });
   }
 
+  Future<void> _addEvidenceImage() async {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => Container(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              'เพิ่มหลักฐาน',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 20),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                _buildImageSourceOption(
+                  icon: Icons.camera_alt,
+                  label: 'ถ่ายรูป',
+                  onTap: () {
+                    Navigator.pop(context);
+                    _pickImage(ImageSource.camera);
+                  },
+                ),
+                _buildImageSourceOption(
+                  icon: Icons.photo_library,
+                  label: 'เลือกรูป',
+                  onTap: () {
+                    Navigator.pop(context);
+                    _pickImage(ImageSource.gallery);
+                  },
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildImageSourceOption({
+    required IconData icon,
+    required String label,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: Colors.grey[100],
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Column(
+          children: [
+            Icon(icon, size: 40, color: Colors.blue),
+            const SizedBox(height: 8),
+            Text(
+              label,
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _pickImage(ImageSource source) async {
+    try {
+      final XFile? image = await _imagePicker.pickImage(
+        source: source,
+        imageQuality: 85,
+        maxWidth: 1024,
+      );
+
+      if (image != null) {
+        setState(() {
+          _evidenceImagePath = image.path;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('เกิดข้อผิดพลาด: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
   Future<void> _submitRequest() async {
     if (!_formKey.currentState!.validate()) {
       return;
@@ -131,6 +238,17 @@ class _RequestOvertimeScreenState extends State<RequestOvertimeScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('กรุณาเลือกช่วงเวลาที่ถูกต้อง'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    // ตรวจสอบว่าต้องมีรูปภาพหลักฐาน
+    if (_evidenceImagePath == null || _evidenceImagePath!.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('กรุณาแนบรูปภาพหลักฐาน'),
           backgroundColor: Colors.red,
         ),
       );
@@ -151,6 +269,7 @@ class _RequestOvertimeScreenState extends State<RequestOvertimeScreen> {
       startTime: startTimeStr,
       endTime: endTimeStr,
       reason: _reasonController.text.trim(),
+      evidenceImagePath: _evidenceImagePath,
     );
 
     setState(() {
@@ -348,19 +467,112 @@ class _RequestOvertimeScreenState extends State<RequestOvertimeScreen> {
             ),
             const SizedBox(height: 24),
 
-            // เหตุผล
-            TextFormField(
-              controller: _reasonController,
-              decoration: InputDecoration(
-                labelText: 'เหตุผล (ไม่บังคับ)',
-                hintText: 'ระบุเหตุผลในการทำงานล่วงเวลา',
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
+            // หลักฐาน (รูปภาพ)
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.image, color: Colors.purple, size: 24),
+                        const SizedBox(width: 12),
+                        const Text(
+                          'หลักฐาน',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.grey,
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        const Text(
+                          '*',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.red,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    if (_evidenceImagePath == null)
+                      InkWell(
+                        onTap: _addEvidenceImage,
+                        borderRadius: BorderRadius.circular(12),
+                        child: Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.symmetric(vertical: 40),
+                          decoration: BoxDecoration(
+                            color: Colors.grey[50],
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: Colors.grey[300]!,
+                              style: BorderStyle.solid,
+                              width: 2,
+                            ),
+                          ),
+                          child: Column(
+                            children: [
+                              Icon(
+                                Icons.add_photo_alternate,
+                                size: 48,
+                                color: Colors.grey[400],
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                'เพิ่มรูปภาพหลักฐาน',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: Colors.grey[600],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      )
+                    else
+                      Stack(
+                        children: [
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(12),
+                            child: Image.file(
+                              File(_evidenceImagePath!),
+                              width: double.infinity,
+                              height: 200,
+                              fit: BoxFit.cover,
+                            ),
+                          ),
+                          Positioned(
+                            top: 8,
+                            right: 8,
+                            child: Material(
+                              color: Colors.red,
+                              borderRadius: BorderRadius.circular(20),
+                              child: InkWell(
+                                onTap: () {
+                                  setState(() {
+                                    _evidenceImagePath = null;
+                                  });
+                                },
+                                borderRadius: BorderRadius.circular(20),
+                                child: const Padding(
+                                  padding: EdgeInsets.all(8),
+                                  child: Icon(
+                                    Icons.close,
+                                    color: Colors.white,
+                                    size: 20,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                  ],
                 ),
-                prefixIcon: const Icon(Icons.note),
               ),
-              maxLines: 4,
-              textInputAction: TextInputAction.done,
             ),
             const SizedBox(height: 32),
 

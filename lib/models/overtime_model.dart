@@ -32,6 +32,9 @@ class OvertimeRequest {
   final String? department;
   final String? position;
   final String? approverName;
+  
+  // Evidence image path
+  final String? evidenceImagePath;
 
   OvertimeRequest({
     required this.id,
@@ -51,6 +54,7 @@ class OvertimeRequest {
     this.department,
     this.position,
     this.approverName,
+    this.evidenceImagePath,
   });
 
   String get dateFormatted {
@@ -141,6 +145,7 @@ class OvertimeRequest {
       department: json['department'] as String?,
       position: json['position'] as String?,
       approverName: json['approver_name'] as String?,
+      evidenceImagePath: json['evidence_image_path'] as String?,
     );
   }
 

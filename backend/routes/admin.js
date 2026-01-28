@@ -486,13 +486,19 @@ router.get(
     // ไม่ filter สถานะที่ backend แล้ว
     // ปล่อยให้ฝั่ง Flutter กรอง approved / pending / rejected เอง
 
+    // ปรับปรุง query ให้รองรับกรณีที่ leaves.user_id อาจเป็น employee_id หรือ login.user_id
+    // และใช้ข้อมูลจาก login table เป็น fallback ถ้าไม่มีข้อมูลใน employees
     const [leaves] = await connection.execute(
       `SELECT 
         lv.id,
         lv.user_id as employee_id,
-        CONCAT(e.first_name, ' ', e.last_name) as employee_name,
-        e.position,
-        e.department,
+        COALESCE(
+          CONCAT(e.first_name, ' ', e.last_name),
+          l.username,
+          CONCAT('User ID: ', lv.user_id)
+        ) as employee_name,
+        COALESCE(e.position, '-') as position,
+        COALESCE(e.department, '-') as department,
         lv.leave_type,
         lv.start_date,
         lv.end_date,
@@ -504,11 +510,80 @@ router.get(
         lv.created_at
       FROM leaves lv
       LEFT JOIN employees e ON lv.user_id = e.employee_id
+      LEFT JOIN login l ON e.user_id = l.user_id
       WHERE ${whereClause}
       ORDER BY lv.created_at DESC
       LIMIT 200`,
       params
     );
+
+    // Debug logging
+    console.log(`[Leave Details API] Date filter: ${date || 'none'}, Found ${leaves.length} leaves`);
+    
+    // ตรวจสอบใบลาทั้งหมดที่มีชื่อ neera (case insensitive)
+    const neeraLeavesByName = leaves.filter(l => {
+      const name = (l.employee_name || '').toLowerCase();
+      return name.includes('neera');
+    });
+    
+    if (neeraLeavesByName.length > 0) {
+      console.log(`[Leave Details API] Found ${neeraLeavesByName.length} leave(s) for neera:`, 
+        neeraLeavesByName.map(l => {
+          const empId = parseInt(l.employee_id) || 0;
+          const isInDateRange = date ? (date >= l.start_date && date <= l.end_date) : null;
+          return {
+            id: l.id,
+            employee_id: l.employee_id,
+            name: l.employee_name,
+            status: l.status,
+            start_date: l.start_date,
+            end_date: l.end_date,
+            department: l.department,
+            date_in_range: isInDateRange,
+            selected_date: date || 'none'
+          };
+        })
+      );
+      
+      // ตรวจสอบว่า neera มีใบลาที่ตรงกับวันที่ที่เลือกหรือไม่
+      if (date) {
+        const neeraLeavesForDate = neeraLeavesByName.filter(l => {
+          return date >= l.start_date && date <= l.end_date;
+        });
+        
+        if (neeraLeavesForDate.length > 0) {
+          console.log(`[Leave Details API] Neera has ${neeraLeavesForDate.length} leave(s) for date ${date}:`, neeraLeavesForDate);
+          
+          // ตรวจสอบสถานะ
+          const approvedOrPending = neeraLeavesForDate.filter(l => {
+            const status = (l.status || '').toLowerCase();
+            return status.includes('approved') || status.includes('อนุมัติ') || 
+                   status.includes('pending') || status.includes('รออนุมัติ');
+          });
+          
+          console.log(`[Leave Details API] Neera leaves with approved/pending status: ${approvedOrPending.length}`, approvedOrPending);
+          
+          if (approvedOrPending.length === 0) {
+            console.log(`[Leave Details API] WARNING: Neera has leaves for date ${date} but NONE have approved/pending status!`);
+            console.log(`[Leave Details API] Neera leave statuses for date ${date}:`, neeraLeavesForDate.map(l => l.status));
+          }
+        } else {
+          console.log(`[Leave Details API] WARNING: Neera has leaves but NONE match date ${date}!`);
+          console.log(`[Leave Details API] Neera leave date ranges:`, neeraLeavesByName.map(l => `${l.start_date} to ${l.end_date}`));
+        }
+      }
+    } else {
+      console.log(`[Leave Details API] No leaves found for neera in results`);
+    }
+    
+    if (date) {
+      const filteredByStatus = leaves.filter(l => {
+        const status = (l.status || '').toLowerCase();
+        return status.includes('approved') || status.includes('อนุมัติ') || 
+               status.includes('pending') || status.includes('รออนุมัติ');
+      });
+      console.log(`[Leave Details API] After status filter (approved/pending): ${filteredByStatus.length} leaves`);
+    }
 
     res.json({
       success: true,

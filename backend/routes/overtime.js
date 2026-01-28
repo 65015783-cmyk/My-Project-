@@ -1,7 +1,49 @@
 const express = require('express');
 const router = express.Router();
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
 const { pool } = require('../db');
 const { authenticateToken } = require('../middleware/auth');
+
+// ตั้งค่า multer สำหรับอัปโหลดรูปภาพ
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    // สร้างโฟลเดอร์ uploads/overtime ถ้ายังไม่มี
+    const uploadDir = path.join(__dirname, '../uploads/overtime');
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    cb(null, uploadDir);
+  },
+  filename: (req, file, cb) => {
+    // สร้างชื่อไฟล์: ot_YYYYMMDD_HHMMSS_userId_originalname
+    const userId = req.user?.user_id || 'unknown';
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const ext = path.extname(file.originalname);
+    const filename = `ot_${timestamp}_${userId}${ext}`;
+    cb(null, filename);
+  }
+});
+
+const upload = multer({
+  storage: storage,
+  limits: {
+    fileSize: 5 * 1024 * 1024 // 5MB
+  },
+  fileFilter: (req, file, cb) => {
+    // อนุญาตเฉพาะไฟล์รูปภาพ
+    const allowedTypes = /jpeg|jpg|png|gif|webp/;
+    const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
+    const mimetype = allowedTypes.test(file.mimetype);
+    
+    if (extname && mimetype) {
+      cb(null, true);
+    } else {
+      cb(new Error('กรุณาอัปโหลดไฟล์รูปภาพเท่านั้น (jpg, png, gif, webp)'));
+    }
+  }
+});
 
 // GET: ดึงคำขอ OT ทั้งหมดของพนักงาน (สำหรับพนักงาน)
 router.get('/my-requests', authenticateToken, async (req, res) => {
@@ -195,15 +237,36 @@ router.get('/pending', authenticateToken, async (req, res) => {
   }
 });
 
-// POST: สร้างคำขอ OT ใหม่
-router.post('/request', authenticateToken, async (req, res) => {
+// POST: สร้างคำขอ OT ใหม่ (รองรับการอัปโหลดรูปภาพหลักฐาน)
+router.post('/request', authenticateToken, upload.single('evidence_image'), async (req, res) => {
   let connection;
   try {
     const userId = req.user.user_id;
-    const { date, start_time, end_time, reason } = req.body;
+    
+    // รองรับทั้ง JSON และ multipart/form-data
+    const date = req.body.date;
+    const start_time = req.body.start_time;
+    const end_time = req.body.end_time;
+    const reason = req.body.reason || '';
+    
+    // ตรวจสอบไฟล์รูปภาพ (ถ้ามี)
+    let evidenceImagePath = null;
+    if (req.file) {
+      // เก็บ path ของไฟล์ที่อัปโหลด (relative path จาก uploads/overtime)
+      evidenceImagePath = `uploads/overtime/${req.file.filename}`;
+      console.log(`[OT Request] Evidence image uploaded: ${evidenceImagePath}`);
+    }
 
     // Validate input
     if (!date || !start_time || !end_time) {
+      // ถ้ามีไฟล์อัปโหลดแล้วแต่ข้อมูลไม่ครบ ให้ลบไฟล์
+      if (req.file) {
+        try {
+          fs.unlinkSync(req.file.path);
+        } catch (e) {
+          console.error('Error deleting uploaded file:', e);
+        }
+      }
       return res.status(400).json({ message: 'กรุณากรอกข้อมูลให้ครบถ้วน' });
     }
 
@@ -212,6 +275,14 @@ router.post('/request', authenticateToken, async (req, res) => {
     const end = new Date(`2000-01-01 ${end_time}`);
     
     if (end <= start) {
+      // ถ้ามีไฟล์อัปโหลดแล้วแต่ข้อมูลไม่ถูกต้อง ให้ลบไฟล์
+      if (req.file) {
+        try {
+          fs.unlinkSync(req.file.path);
+        } catch (e) {
+          console.error('Error deleting uploaded file:', e);
+        }
+      }
       return res.status(400).json({ message: 'เวลาเริ่มต้นต้องน้อยกว่าเวลาสิ้นสุด' });
     }
 
@@ -227,24 +298,43 @@ router.post('/request', authenticateToken, async (req, res) => {
     );
 
     if (existing.length > 0) {
+      // ถ้ามีไฟล์อัปโหลดแล้วแต่มีคำขอซ้ำ ให้ลบไฟล์
+      if (req.file) {
+        try {
+          fs.unlinkSync(req.file.path);
+        } catch (e) {
+          console.error('Error deleting uploaded file:', e);
+        }
+      }
       return res.status(400).json({ message: 'คุณมีคำขอ OT ในวันนี้อยู่แล้ว' });
     }
 
-    // สร้างคำขอ OT
+    // สร้างคำขอ OT (รวม evidence_image_path ถ้ามี)
     const [result] = await connection.execute(
       `INSERT INTO overtime_requests 
-       (user_id, date, start_time, end_time, total_hours, reason, status) 
-       VALUES (?, ?, ?, ?, ?, ?, 'pending')`,
-      [userId, date, start_time, end_time, totalHours, reason || '']
+       (user_id, date, start_time, end_time, total_hours, reason, evidence_image_path, status) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')`,
+      [userId, date, start_time, end_time, totalHours, reason, evidenceImagePath]
     );
 
     res.json({
       message: 'ส่งคำขอ OT สำเร็จ',
       id: result.insertId,
-      total_hours: parseFloat(totalHours)
+      total_hours: parseFloat(totalHours),
+      evidence_image_path: evidenceImagePath
     });
   } catch (error) {
     console.error('Error creating OT request:', error);
+    
+    // ถ้ามีไฟล์อัปโหลดแล้วแต่เกิด error ให้ลบไฟล์
+    if (req.file) {
+      try {
+        fs.unlinkSync(req.file.path);
+      } catch (e) {
+        console.error('Error deleting uploaded file:', e);
+      }
+    }
+    
     res.status(500).json({ message: 'เกิดข้อผิดพลาดในการสร้างคำขอ' });
   } finally {
     if (connection) connection.release();

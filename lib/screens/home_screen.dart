@@ -55,7 +55,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final attendanceService = Provider.of<AttendanceService>(context);
     final user = authService.currentUser;
 
+    // ถ้าไม่มี user ให้ redirect ไปหน้า login
     if (user == null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          Navigator.of(context).pushReplacementNamed('/login');
+        }
+      });
       return const Scaffold(
         body: Center(child: CircularProgressIndicator()),
       );

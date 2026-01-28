@@ -63,5 +63,18 @@ class ApiConfig {
     'Content-Type': 'application/json',
     'Authorization': 'Bearer $token',
   };
+
+  // Helper function สำหรับสร้าง URL ของรูปภาพหลักฐาน OT
+  static String getEvidenceImageUrl(String? imagePath) {
+    if (imagePath == null || imagePath.isEmpty) {
+      return '';
+    }
+    // ถ้า imagePath เป็น full URL อยู่แล้ว ให้คืนค่าเดิม
+    if (imagePath.startsWith('http://') || imagePath.startsWith('https://')) {
+      return imagePath;
+    }
+    // ถ้า imagePath เป็น relative path ให้ต่อกับ baseUrl
+    return '$baseUrl/$imagePath';
+  }
 }
 

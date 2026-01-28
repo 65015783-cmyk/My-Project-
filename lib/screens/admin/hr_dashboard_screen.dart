@@ -317,10 +317,19 @@ class _HRDashboardScreenState extends State<HRDashboardScreen> {
                               leave['employeeName']?.toString()?.trim() ?? 
                               'ไม่ทราบชื่อ').trim();
           
+          // Debug: ตรวจสอบ neera
+          final isNeera = employeeName.toLowerCase().contains('neera');
+          if (isNeera) {
+            print('[HR Dashboard] Found neera leave: name=$employeeName, startDate=$startDate, endDate=$endDate, status=$status');
+          }
+          
           // ตรวจสอบเฉพาะใบลาที่ "ถือว่ายังมีผลในวันนี้"
           // เดิมนับเฉพาะที่อนุมัติแล้ว (approved) → ทำให้คนที่ลาวันนี้แต่รออนุมัติไม่ถูกนับ
           // ปรับให้รวมสถานะ pending ด้วย (pending, รออนุมัติ, pending_approval)
           if (startDate == null || endDate == null) {
+            if (isNeera) {
+              print('[HR Dashboard] Skip neera leave: missing startDate or endDate');
+            }
             print('[HR Dashboard] Skip leave for $employeeName: missing startDate or endDate. startDate=$startDate, endDate=$endDate');
             continue;
           }
@@ -348,6 +357,9 @@ class _HRDashboardScreenState extends State<HRDashboardScreen> {
 
           // ถ้าไม่ใช่ approved หรือ pending (หรือเป็น rejected) ให้ข้าม
           if (isRejected || !(isApproved || isPending)) {
+            if (employeeName.toLowerCase().contains('neera')) {
+              print('[HR Dashboard] Skip neera leave: status=$status (isApproved=$isApproved, isPending=$isPending, isRejected=$isRejected)');
+            }
             print('[HR Dashboard] Skip leave for $employeeName: status=$status (isApproved=$isApproved, isPending=$isPending, isRejected=$isRejected)');
             continue;
           }
@@ -359,6 +371,9 @@ class _HRDashboardScreenState extends State<HRDashboardScreen> {
               final selected = DateTime.parse(dateStr); // YYYY-MM-DD (local)
 
               if (start == null || end == null) {
+                if (employeeName.toLowerCase().contains('neera')) {
+                  print('[HR Dashboard] Skip neera leave: start/end cannot be parsed. startDate=$startDate, endDate=$endDate');
+                }
                 print(
                     '[HR Dashboard] Skip leave for $employeeName: start/end cannot be parsed. startDate=$startDate, endDate=$endDate');
                 continue;
@@ -370,10 +385,19 @@ class _HRDashboardScreenState extends State<HRDashboardScreen> {
               final startDateOnly = DateTime(start.year, start.month, start.day);
               final endDateOnly = DateTime(end.year, end.month, end.day);
               
+              // Debug สำหรับ neera
+              if (employeeName.toLowerCase().contains('neera')) {
+                print('[HR Dashboard] Neera date check: raw startDate=$startDate, raw endDate=$endDate');
+                print('[HR Dashboard] Neera date check: parsed start=$startDateOnly, parsed end=$endDateOnly, selected=$selectedDateOnly');
+              }
+              
               final bool isInRange = !selectedDateOnly.isBefore(startDateOnly) &&
                   !selectedDateOnly.isAfter(endDateOnly);
 
               if (!isInRange) {
+                if (employeeName.toLowerCase().contains('neera')) {
+                  print('[HR Dashboard] Skip neera leave: date not in range. selected=$dateStr (${selectedDateOnly.toString().split(' ')[0]}), start=${startDateOnly.toString().split(' ')[0]}, end=${endDateOnly.toString().split(' ')[0]}');
+                }
                 print('[HR Dashboard] Skip leave for $employeeName: date not in range. selected=$dateStr (${selectedDateOnly.toString().split(' ')[0]}), start=${startDateOnly.toString().split(' ')[0]}, end=${endDateOnly.toString().split(' ')[0]}');
                 continue;
               }
@@ -472,23 +496,45 @@ class _HRDashboardScreenState extends State<HRDashboardScreen> {
                   }
 
                   // ดึงข้อมูลพนักงานจาก employee summary
+                  // หมายเหตุ: userId จาก leave record คือ employee_id (ไม่ใช่ login.user_id)
                   final empInfo = userId != null && userId.isNotEmpty
                       ? _employeeSummary?.firstWhere(
                           (e) {
-                            final empId = e['user_id']?.toString()?.trim() ??
-                                e['employee_id']?.toString()?.trim() ??
+                            // หาโดยใช้ employee_id เป็นหลัก (เพราะ leaves.user_id = employees.employee_id)
+                            final empId = e['employee_id']?.toString()?.trim() ??
                                 e['id']?.toString()?.trim();
-                            return empId != null && empId == userId;
+                            final match = empId != null && empId == userId;
+                            
+                            // Debug สำหรับ neera
+                            if (employeeName.toLowerCase().contains('neera')) {
+                              print('[HR Dashboard] Looking for neera: userId=$userId, empId=$empId, match=$match, found_name=${e['full_name']?.toString() ?? e['name']?.toString()}');
+                            }
+                            
+                            return match;
                           },
                           orElse: () => null,
                         )
                       : null;
 
                   // ใช้ข้อมูลจาก employee summary ถ้ามี ไม่เช่นนั้นใช้จาก leave record
+                  // แต่ถ้าชื่อไม่ตรงกัน ให้ใช้ชื่อจาก leave record (เพื่อป้องกันกรณีที่ employee_id ซ้ำกัน)
                   final finalName = empInfo != null
-                      ? (empInfo['full_name']?.toString()?.trim() ??
-                          empInfo['name']?.toString()?.trim() ??
-                          employeeName)
+                      ? (() {
+                          final summaryName = empInfo['full_name']?.toString()?.trim() ??
+                              empInfo['name']?.toString()?.trim();
+                          
+                          // ตรวจสอบว่าชื่อตรงกันหรือไม่ (case insensitive)
+                          if (summaryName != null && 
+                              summaryName.toLowerCase().trim() == employeeName.toLowerCase().trim()) {
+                            return summaryName;
+                          } else {
+                            // ถ้าชื่อไม่ตรงกัน ให้ใช้ชื่อจาก leave record (น่าเชื่อถือกว่า)
+                            if (employeeName.toLowerCase().contains('neera')) {
+                              print('[HR Dashboard] WARNING: Name mismatch for neera! Leave record name=$employeeName, Summary name=$summaryName, using leave record name');
+                            }
+                            return employeeName;
+                          }
+                        })()
                       : employeeName;
                   final finalDept = empInfo != null
                       ? (empInfo['department']?.toString()?.trim() ?? '-')
@@ -504,6 +550,10 @@ class _HRDashboardScreenState extends State<HRDashboardScreen> {
                     'leaveEnd': endDateOnly,
                   });
 
+                  final isNeeraAdded = finalName.toLowerCase().contains('neera');
+                  if (isNeeraAdded) {
+                    print('[HR Dashboard] ✅ Added neera leave: userId=$userId, name=$finalName, dept=$finalDept, status=$status, dateRange=${startDateOnly.toString().split(' ')[0]} to ${endDateOnly.toString().split(' ')[0]}');
+                  }
                   print(
                       '[HR Dashboard] Added leave: userId=$userId, name=$finalName, dept=$finalDept, status=$status, dateRange=${startDateOnly.toString().split(' ')[0]} to ${endDateOnly.toString().split(' ')[0]}');
                 } else {

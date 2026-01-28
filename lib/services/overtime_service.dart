@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
+import 'dart:io';
 import 'package:http/http.dart' as http;
 import '../models/overtime_model.dart';
 import '../config/api_config.dart';
@@ -153,6 +154,7 @@ class OvertimeService extends ChangeNotifier {
     required String startTime,
     required String endTime,
     String? reason,
+    String? evidenceImagePath,
   }) async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -164,26 +166,79 @@ class OvertimeService extends ChangeNotifier {
 
       final dateStr = '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
 
-      final response = await http.post(
-        Uri.parse(ApiConfig.overtimeRequestUrl),
-        headers: ApiConfig.headersWithAuth(token),
-        body: json.encode({
-          'date': dateStr,
-          'start_time': startTime,
-          'end_time': endTime,
-          'reason': reason ?? '',
-        }),
-      );
+      // ถ้ามีรูปภาพ ให้ใช้ multipart/form-data
+      if (evidenceImagePath != null && evidenceImagePath.isNotEmpty) {
+        try {
+          final file = File(evidenceImagePath);
+          if (!await file.exists()) {
+            return {'success': false, 'message': 'ไม่พบไฟล์รูปภาพ'};
+          }
 
-      final data = json.decode(response.body);
+          final request = http.MultipartRequest(
+            'POST',
+            Uri.parse(ApiConfig.overtimeRequestUrl),
+          );
 
-      if (response.statusCode == 200 || response.statusCode == 201) {
-        // รีโหลดข้อมูลทันที
-        await loadMyRequests();
-        await loadSummary(); // รีโหลดสรุปด้วย
-        return {'success': true, 'message': data['message'] ?? 'ส่งคำขอ OT สำเร็จ'};
+          // เพิ่ม headers
+          request.headers.addAll(ApiConfig.headersWithAuth(token));
+          request.headers.remove('Content-Type'); // ให้ multipart ตั้งค่าเอง
+
+          // เพิ่ม fields
+          request.fields['date'] = dateStr;
+          request.fields['start_time'] = startTime;
+          request.fields['end_time'] = endTime;
+          request.fields['reason'] = reason ?? '';
+
+          // เพิ่มไฟล์รูปภาพ
+          final fileStream = http.ByteStream(file.openRead());
+          final fileLength = await file.length();
+          final multipartFile = http.MultipartFile(
+            'evidence_image',
+            fileStream,
+            fileLength,
+            filename: evidenceImagePath.split('/').last,
+          );
+          request.files.add(multipartFile);
+
+          final streamedResponse = await request.send();
+          final response = await http.Response.fromStream(streamedResponse);
+          final data = json.decode(response.body);
+
+          if (response.statusCode == 200 || response.statusCode == 201) {
+            // รีโหลดข้อมูลทันที
+            await loadMyRequests();
+            await loadSummary();
+            return {'success': true, 'message': data['message'] ?? 'ส่งคำขอ OT สำเร็จ'};
+          } else {
+            return {'success': false, 'message': data['message'] ?? 'เกิดข้อผิดพลาด'};
+          }
+        } catch (e) {
+          print('Error uploading OT request with image: $e');
+          return {'success': false, 'message': 'เกิดข้อผิดพลาดในการอัปโหลดรูปภาพ: ${e.toString()}'};
+        }
       } else {
-        return {'success': false, 'message': data['message'] ?? 'เกิดข้อผิดพลาด'};
+        // ไม่มีรูปภาพ ใช้ JSON แบบเดิม
+        final response = await http.post(
+          Uri.parse(ApiConfig.overtimeRequestUrl),
+          headers: ApiConfig.headersWithAuth(token),
+          body: json.encode({
+            'date': dateStr,
+            'start_time': startTime,
+            'end_time': endTime,
+            'reason': reason ?? '',
+          }),
+        );
+
+        final data = json.decode(response.body);
+
+        if (response.statusCode == 200 || response.statusCode == 201) {
+          // รีโหลดข้อมูลทันที
+          await loadMyRequests();
+          await loadSummary();
+          return {'success': true, 'message': data['message'] ?? 'ส่งคำขอ OT สำเร็จ'};
+        } else {
+          return {'success': false, 'message': data['message'] ?? 'เกิดข้อผิดพลาด'};
+        }
       }
     } catch (e) {
       print('Error creating OT request: $e');

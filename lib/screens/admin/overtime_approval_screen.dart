@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import '../../services/overtime_service.dart';
 import '../../models/overtime_model.dart';
+import '../../config/api_config.dart';
 
 class OvertimeApprovalScreen extends StatefulWidget {
   const OvertimeApprovalScreen({super.key});
@@ -233,6 +234,9 @@ class _OvertimeApprovalScreenState extends State<OvertimeApprovalScreen> {
                   ),
                 if (request.rejectionReason != null)
                   _buildDetailRow('เหตุผลที่ปฏิเสธ', request.rejectionReason!),
+                // แสดงรูปภาพหลักฐาน (ถ้ามี)
+                if (request.evidenceImagePath != null && request.evidenceImagePath!.isNotEmpty)
+                  _buildEvidenceImage(request.evidenceImagePath!),
                 if (isPending && request.status == OvertimeStatus.pending) ...[
                   const SizedBox(height: 16),
                   Row(
@@ -297,6 +301,126 @@ class _OvertimeApprovalScreenState extends State<OvertimeApprovalScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildEvidenceImage(String imagePath) {
+    final imageUrl = ApiConfig.getEvidenceImageUrl(imagePath);
+    
+    return Padding(
+      padding: const EdgeInsets.only(top: 8, bottom: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'หลักฐาน',
+            style: TextStyle(
+              fontSize: 14,
+              color: Colors.grey,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          const SizedBox(height: 8),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: GestureDetector(
+              onTap: () {
+                // เปิดรูปภาพแบบเต็มหน้าจอ
+                _showFullImage(imageUrl);
+              },
+              child: Image.network(
+                imageUrl,
+                width: double.infinity,
+                height: 200,
+                fit: BoxFit.cover,
+                loadingBuilder: (context, child, loadingProgress) {
+                  if (loadingProgress == null) return child;
+                  return Container(
+                    height: 200,
+                    color: Colors.grey[200],
+                    child: Center(
+                      child: CircularProgressIndicator(
+                        value: loadingProgress.expectedTotalBytes != null
+                            ? loadingProgress.cumulativeBytesLoaded /
+                                loadingProgress.expectedTotalBytes!
+                            : null,
+                      ),
+                    ),
+                  );
+                },
+                errorBuilder: (context, error, stackTrace) {
+                  return Container(
+                    height: 200,
+                    color: Colors.grey[200],
+                    child: const Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.error_outline, color: Colors.red),
+                          SizedBox(height: 8),
+                          Text('ไม่สามารถโหลดรูปภาพได้'),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showFullImage(String imageUrl) {
+    showDialog(
+      context: context,
+      builder: (context) {
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          child: Stack(
+            children: [
+              Center(
+                child: InteractiveViewer(
+                  child: Image.network(
+                    imageUrl,
+                    fit: BoxFit.contain,
+                    loadingBuilder: (context, child, loadingProgress) {
+                      if (loadingProgress == null) return child;
+                      return const Center(
+                        child: CircularProgressIndicator(),
+                      );
+                    },
+                    errorBuilder: (context, error, stackTrace) {
+                      return const Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.error_outline, color: Colors.red, size: 48),
+                            SizedBox(height: 16),
+                            Text('ไม่สามารถโหลดรูปภาพได้'),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ),
+              Positioned(
+                top: 40,
+                right: 20,
+                child: IconButton(
+                  icon: const Icon(Icons.close, color: Colors.white, size: 30),
+                  onPressed: () => Navigator.pop(context),
+                  style: IconButton.styleFrom(
+                    backgroundColor: Colors.black54,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 
