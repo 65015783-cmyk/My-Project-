@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'dart:io';
+import 'package:image_picker/image_picker.dart';
 import '../services/auth_service.dart';
 import '../services/attendance_service.dart';
 import '../services/language_service.dart';
@@ -265,9 +266,7 @@ class ProfileScreen extends StatelessWidget {
                     bottom: 0,
                     right: 0,
                     child: GestureDetector(
-                      onTap: () {
-                        // Edit avatar
-                      },
+                      onTap: () => _changeAvatar(context),
                       child: Container(
                         padding: const EdgeInsets.all(8),
                         decoration: BoxDecoration(
@@ -340,6 +339,29 @@ class ProfileScreen extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  /// เปลี่ยนรูปโปรไฟล์จากแกลเลอรี (เก็บ path ไว้ในเครื่องและใน AuthService)
+  Future<void> _changeAvatar(BuildContext context) async {
+    try {
+      final picker = ImagePicker();
+      final XFile? pickedFile = await picker.pickImage(
+        source: ImageSource.gallery,
+        imageQuality: 80,
+      );
+
+      if (pickedFile == null) return;
+
+      final authService = Provider.of<AuthService>(context, listen: false);
+      authService.updateProfile(avatarPath: pickedFile.path);
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('ไม่สามารถเปลี่ยนรูปโปรไฟล์ได้: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 
   void _showLanguageDialog(BuildContext context) {

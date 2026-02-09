@@ -12,7 +12,32 @@ class LeaveHistoryScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final leaveService = Provider.of<LeaveService>(context);
     final leaveRequests = leaveService.leaveRequests;
-    final leaveBalance = leaveService.leaveBalance;
+
+    // คำนวณจำนวนวันที่ "ลาไปแล้ว" ของปีปัจจุบัน แยกตามประเภท สำหรับ user ปัจจุบัน
+    final currentYear = DateTime.now().year;
+    final double sickUsed = leaveRequests
+        .where((leave) =>
+            leave.type == LeaveType.sickLeave &&
+            leave.startDate.year == currentYear &&
+            leave.status == LeaveStatus.approved)
+        .fold<double>(0, (sum, leave) => sum + leave.totalDays);
+
+    // ลากิจใช้ไป = รวมวันลาของประเภท: ลากิจส่วนตัว, ลาครึ่งวัน, ลากลับก่อน
+    final double personalUsed = leaveRequests
+        .where((leave) =>
+            (leave.type == LeaveType.personalLeave ||
+                leave.type == LeaveType.halfDayLeave ||
+                leave.type == LeaveType.earlyLeave) &&
+            leave.startDate.year == currentYear &&
+            leave.status == LeaveStatus.approved)
+        .fold<double>(0, (sum, leave) => sum + leave.totalDays);
+
+    // รวมใช้ไป = ทุกประเภทในปีนี้ที่อนุมัติแล้ว
+    final double totalUsed = leaveRequests
+        .where((leave) =>
+            leave.startDate.year == currentYear &&
+            leave.status == LeaveStatus.approved)
+        .fold<double>(0, (sum, leave) => sum + leave.totalDays);
 
     return Scaffold(
       backgroundColor: const Color(0xFFF5F5F5),
@@ -43,7 +68,7 @@ class LeaveHistoryScreen extends StatelessWidget {
             child: Column(
               children: [
                 const Text(
-                  'ยอดวันลาคงเหลือประจำปี',
+                  'ยอดวันลาที่ใช้ไปในปีนี้',
                   style: TextStyle(
                     fontSize: 16,
                     color: Colors.white,
@@ -55,18 +80,18 @@ class LeaveHistoryScreen extends StatelessWidget {
                   mainAxisAlignment: MainAxisAlignment.spaceAround,
                   children: [
                     _buildBalanceCard(
-                      'ลาป่วย',
-                      '${leaveBalance.sickLeaveRemaining}',
+                      'ลาป่วยใช้ไป',
+                      sickUsed.toStringAsFixed(1),
                       Colors.white,
                     ),
                     _buildBalanceCard(
-                      'ลากิจ',
-                      '${leaveBalance.personalLeaveRemaining}',
+                      'ลากิจใช้ไป',
+                      personalUsed.toStringAsFixed(1),
                       Colors.white,
                     ),
                     _buildBalanceCard(
                       'รวม',
-                      '${leaveBalance.totalRemaining}',
+                      totalUsed.toStringAsFixed(1),
                       Colors.white,
                     ),
                   ],

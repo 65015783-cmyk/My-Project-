@@ -591,59 +591,6 @@ class _RequestLeaveScreenState extends State<RequestLeaveScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Leave Balance Card
-              Container(
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    colors: [Color(0xFF2196F3), Color(0xFF1976D2)],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
-                  borderRadius: BorderRadius.circular(20),
-                  boxShadow: [
-                    BoxShadow(
-                      color: const Color(0xFF2196F3).withValues(alpha: 0.3),
-                      blurRadius: 15,
-                      offset: const Offset(0, 6),
-                    ),
-                  ],
-                ),
-                child: Column(
-                  children: [
-                    const Text(
-                      'ยอดวันลาคงเหลือ',
-                      style: TextStyle(
-                        fontSize: 16,
-                        color: Colors.white,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    // แถวแรก: ลาป่วย และ ลากิจ
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceAround,
-                      children: [
-                        _buildBalanceItem(
-                          'ลาป่วย',
-                          '${leaveBalance.sickLeaveRemaining} วัน',
-                        ),
-                        Container(
-                          width: 1,
-                          height: 40,
-                          color: Colors.white.withValues(alpha: 0.3),
-                        ),
-                        _buildBalanceItem(
-                          'ลากิจ',
-                          '${leaveBalance.personalLeaveRemaining} วัน',
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 24),
-              
               // Leave Type Selection
               const Text(
                 'ประเภทการลา',

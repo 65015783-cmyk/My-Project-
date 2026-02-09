@@ -15,6 +15,7 @@ import 'package:intl/intl.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../config/api_config.dart';
 import 'leave_list_screen.dart';
+import 'employee_work_history_screen.dart';
 
 class HRDashboardScreen extends StatefulWidget {
   const HRDashboardScreen({super.key});
@@ -2046,6 +2047,48 @@ class _HRDashboardScreenState extends State<HRDashboardScreen> {
                             ),
                           ),
                         ],
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: () {
+                          final empId = emp['user_id']?.toString() ??
+                              emp['employee_id']?.toString() ??
+                              emp['id']?.toString();
+
+                          if (empId == null || empId.isEmpty) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('ไม่พบรหัสพนักงานสำหรับดูประวัติการทำงาน'),
+                                backgroundColor: Colors.red,
+                              ),
+                            );
+                            return;
+                          }
+
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (context) => EmployeeWorkHistoryScreen(
+                                employeeId: empId,
+                                fullName: emp['full_name']?.toString() ?? '-',
+                                department: emp['department']?.toString(),
+                                position: emp['position']?.toString(),
+                              ),
+                            ),
+                          );
+                        },
+                        icon: const Icon(Icons.history),
+                        label: const Text('ดูประวัติการทำงาน'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.blue,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
                       ),
                     ),
                   ],

@@ -18,7 +18,10 @@ class ApiConfig {
   static String get checkInUrl => '$baseUrl/api/attendance/checkin';
   static String get checkOutUrl => '$baseUrl/api/attendance/checkout';
   static String get attendanceTodayUrl => '$baseUrl/api/attendance/today';
+  // สำหรับ HR/Admin ใช้ดูข้อมูลการเข้างานของทุกคน
   static String get attendanceAllUrl => '$baseUrl/api/attendance/all';
+  // สำหรับผู้ใช้ทั่วไป ใช้ดูประวัติการเข้างานของตัวเอง
+  static String get attendanceHistoryUrl => '$baseUrl/api/attendance/history';
   static String get leaveRequestUrl => '$baseUrl/api/leave/request';
   static String get leaveHistoryUrl => '$baseUrl/api/leave/history';
   static String get leavePendingUrl => '$baseUrl/api/leave/pending';

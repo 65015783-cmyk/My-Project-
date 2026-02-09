@@ -426,27 +426,47 @@ class AttendanceService extends ChangeNotifier {
     try {
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('auth_token');
-      final userId = prefs.getInt('user_id')?.toString();
 
-      if (token == null || userId == null) {
+      // ถ้าไม่มี token แสดงว่ายังไม่เข้าสู่ระบบ
+      if (token == null) {
         _history.clear();
         notifyListeners();
         return;
       }
-
+      // ใช้ endpoint /api/attendance/history สำหรับดึงประวัติของ "ผู้ใช้ปัจจุบัน"
       final response = await http.get(
-        Uri.parse(ApiConfig.attendanceAllUrl),
+        Uri.parse(ApiConfig.attendanceHistoryUrl),
         headers: ApiConfig.headersWithAuth(token),
       );
+
+      print('[AttendanceService][History] Request URL: ${ApiConfig.attendanceHistoryUrl}');
+      print('[AttendanceService][History] Response status: ${response.statusCode}');
+      print('[AttendanceService][History] Response body: ${response.body}');
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
 
-        // รองรับทั้งรูปแบบ { attendance: [...] } และเป็น list ตรงๆ
-        final List<dynamic> list =
-            (data is Map<String, dynamic> && data['attendance'] is List)
-                ? data['attendance'] as List
-                : (data is List ? data : []);
+        // รองรับทั้งรูปแบบ
+        // - { attendance: [...] }
+        // - { attendances: [...] }  // ใช้ในหน้าจอ Admin
+        // - { data: [...] }
+        // - [ ... ] list ตรงๆ
+        List<dynamic> list;
+        if (data is Map<String, dynamic>) {
+          if (data['attendance'] is List) {
+            list = data['attendance'] as List<dynamic>;
+          } else if (data['attendances'] is List) {
+            list = data['attendances'] as List<dynamic>;
+          } else if (data['data'] is List) {
+            list = data['data'] as List<dynamic>;
+          } else {
+            list = const [];
+          }
+        } else if (data is List) {
+          list = data;
+        } else {
+          list = const [];
+        }
 
         final List<AttendanceModel> items = [];
 
@@ -454,13 +474,6 @@ class AttendanceService extends ChangeNotifier {
           if (raw is! Map<String, dynamic>) continue;
 
           final attendanceData = raw;
-
-          // ถ้ามี user_id ใน response ให้กรองให้ตรงกับ user ปัจจุบัน
-          final attendanceUserId = attendanceData['user_id']?.toString() ??
-              attendanceData['employee_id']?.toString();
-          if (attendanceUserId != null && attendanceUserId != userId) {
-            continue;
-          }
 
           try {
             // Parse date

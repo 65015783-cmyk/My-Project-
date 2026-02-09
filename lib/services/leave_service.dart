@@ -68,6 +68,10 @@ class LeaveService extends ChangeNotifier {
       print('Error loading leave history: $e');
       _initializeMockData(); // ใช้ mock data ถ้าเกิด error
     }
+
+    // หลังจากโหลดประวัติการลาแล้ว ลองคำนวณยอดวันลาคงเหลือจากข้อมูลจริงอีกรอบ
+    // เพื่อให้ค่าคงเหลือ (ลาป่วย/ลากิจ) ตรงกับประวัติที่แสดง
+    await _loadLeaveBalance();
   }
 
   void _initializeMockData() {
@@ -89,29 +93,79 @@ class LeaveService extends ChangeNotifier {
       }
 
       final currentYear = DateTime.now().year;
+      print('[LeaveService] Loading leave balance for year $currentYear');
       final response = await http.get(
         Uri.parse('${ApiConfig.leaveMySummaryUrl}?year=$currentYear'),
         headers: ApiConfig.headersWithAuth(token),
       );
 
+      print('[LeaveService] Leave balance response status: ${response.statusCode}');
+      print('[LeaveService] Leave balance response body: ${response.body}');
+
       if (response.statusCode == 200) {
         final data = json.decode(response.body) as Map<String, dynamic>;
 
-        // สมมติ backend ส่ง key: totalLeave, sickUsed, personalUsed, remaining
-        final int total = (data['totalLeave'] as num?)?.toInt() ?? 0;
-        final int sickUsed = (data['sickUsed'] as num?)?.toInt() ?? 0;
-        final int personalUsed = (data['personalUsed'] as num?)?.toInt() ?? 0;
-        final int remaining = (data['remaining'] as num?)?.toInt() ?? 0;
+        // รองรับรูปแบบ response ใหม่จาก backend:
+        // {
+        //   success: true,
+        //   year: 2026,
+        //   leave_summary: {
+        //     total_leave_days,
+        //     sick_leave_days,
+        //     personal_leave_days,
+        //     pending_leave_days,
+        //     current_year_leave_days,
+        //     remaining_leave_days
+        //   },
+        //   attendance_summary: { ... }
+        // }
+        final Map<String, dynamic> leaveSummary =
+            (data['leave_summary'] as Map<String, dynamic>?) ?? {};
 
-        // แปลงเป็น LeaveBalance: เหลือป่วย/ลากิจ และรวม
-        final sickRemaining = (data['sickRemaining'] as num?)?.toInt() ??
-            (total - sickUsed);
-        final personalRemaining =
-            (data['personalRemaining'] as num?)?.toInt() ??
-                (remaining - sickRemaining);
+        // จำนวนวันที่ "ใช้ไปแล้ว" แยกตามประเภท
+        // พยายามใช้จากประวัติการลาจริง (_leaveRequests) โดยดูเฉพาะปีปัจจุบันและที่อนุมัติแล้ว
+        int sickUsed = 0;
+        int personalUsed = 0;
 
-        // คำนวณ earlyLeave และ halfDayLeave ที่เหลือ
-        final currentYear = DateTime.now().year;
+        if (_leaveRequests.isNotEmpty) {
+          sickUsed = _leaveRequests
+              .where((leave) =>
+                  leave.type == LeaveType.sickLeave &&
+                  leave.startDate.year == currentYear &&
+                  leave.status == LeaveStatus.approved)
+              .fold<double>(0, (sum, leave) => sum + leave.totalDays)
+              .round();
+
+          personalUsed = _leaveRequests
+              .where((leave) =>
+                  leave.type == LeaveType.personalLeave &&
+                  leave.startDate.year == currentYear &&
+                  leave.status == LeaveStatus.approved)
+              .fold<double>(0, (sum, leave) => sum + leave.totalDays)
+              .round();
+        } else {
+          // ถ้ายังไม่มีประวัติใน memory ให้ fallback ใช้ค่าจาก backend summary (ถ้ามี)
+          sickUsed =
+              (leaveSummary['sick_leave_days'] as num?)?.toInt() ?? 0;
+          personalUsed =
+              (leaveSummary['personal_leave_days'] as num?)?.toInt() ?? 0;
+        }
+
+        // จำนวนวันลาที่เหลือรวมตามที่ backend คำนวณให้ (30 วัน - ที่ใช้ไปปีนี้)
+        final int remainingTotal =
+            (leaveSummary['remaining_leave_days'] as num?)?.toInt() ?? 30;
+
+        // กำหนดสิทธิ์ต่อปีของแต่ละประเภท (ปรับได้ตามนโยบายบริษัท)
+        const int maxSickPerYear = 30;
+        const int maxPersonalPerYear = 10;
+
+        // คำนวณ "วันลาคงเหลือ" ตามประเภทจากข้อมูลจริง
+        final int sickRemaining =
+            (maxSickPerYear - sickUsed).clamp(0, maxSickPerYear);
+        final int personalRemaining =
+            (maxPersonalPerYear - personalUsed).clamp(0, maxPersonalPerYear);
+
+        // คำนวณ earlyLeave และ halfDayLeave ที่เหลือ (ใช้ currentYear เดิมด้านบน)
         final earlyLeaveUsed = _leaveRequests.where((leave) =>
             leave.type == LeaveType.earlyLeave &&
             leave.startDate.year == currentYear &&

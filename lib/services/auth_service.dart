@@ -25,10 +25,27 @@ class AuthService extends ChangeNotifier {
       final userId = prefs.getInt('user_id');
       final username = prefs.getString('username');
       final token = prefs.getString('auth_token');
+      final savedAvatarPath = prefs.getString('avatar_path');
 
       if (userId != null && username != null && token != null) {
         // Try to fetch fresh profile data from backend
         await fetchUserProfile();
+
+        // ถ้ามี path รูปโปรไฟล์ที่เคยบันทึกไว้ ให้ใส่กลับเข้าไปใน currentUser
+        if (savedAvatarPath != null && savedAvatarPath.isNotEmpty && _currentUser != null) {
+          _currentUser = UserModel(
+            id: _currentUser!.id,
+            firstName: _currentUser!.firstName,
+            lastName: _currentUser!.lastName,
+            email: _currentUser!.email,
+            position: _currentUser!.position,
+            avatarUrl: savedAvatarPath,
+            isManager: _currentUser!.isManager,
+            role: _currentUser!.role,
+            department: _currentUser!.department,
+          );
+          notifyListeners();
+        }
       }
     } catch (e) {
       print('Error loading user from prefs: $e');
@@ -185,7 +202,18 @@ class AuthService extends ChangeNotifier {
       email: _currentUser!.email,
       position: position ?? _currentUser!.position,
       avatarUrl: avatarPath ?? _currentUser!.avatarUrl,
+      isManager: _currentUser!.isManager,
+      role: _currentUser!.role,
+      department: _currentUser!.department,
     );
+
+    // บันทึก path รูปโปรไฟล์ไว้ใน SharedPreferences เพื่อใช้ในครั้งถัดไป
+    if (avatarPath != null) {
+      SharedPreferences.getInstance().then((prefs) {
+        prefs.setString('avatar_path', avatarPath);
+      });
+    }
+
     notifyListeners();
   }
 }
