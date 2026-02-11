@@ -41,7 +41,7 @@ router.post('/request', authenticateToken, async (req, res) => {
 
     const leaveId = result.insertId;
 
-    // สร้างการแจ้งเตือนให้ admin ทุกคนเมื่อมีการส่งคำขอลาใหม่
+    // สร้างการแจ้งเตือนให้ผู้มีสิทธิ์อนุมัติ (Admin + Manager แผนกเดียวกัน)
     try {
       // หาข้อมูลพนักงานที่ขอลาเพื่อใช้ใน notification
       const [employeeInfo] = await connection.execute(
@@ -60,6 +60,23 @@ router.post('/request', authenticateToken, async (req, res) => {
       );
       
       console.log(`[Leave Request] Found ${adminRows.length} admin(s) to notify`);
+
+      // หา manager ทุกคนในแผนกเดียวกับพนักงาน (หัวหน้างาน)
+      let managerRows = [];
+      if (employeeDept) {
+        const [rows] = await connection.execute(
+          `SELECT l.user_id
+           FROM login l
+           INNER JOIN employees e ON l.user_id = e.user_id
+           WHERE l.role = 'manager'
+             AND e.department = ?`,
+          [employeeDept]
+        );
+        managerRows = rows;
+        console.log(`[Leave Request] Found ${managerRows.length} manager(s) in department ${employeeDept} to notify`);
+      } else {
+        console.log('[Leave Request] Employee has no department, skip manager notifications');
+      }
       
       // สร้างตาราง notifications ถ้ายังไม่มี
       try {
@@ -107,11 +124,12 @@ router.post('/request', authenticateToken, async (req, res) => {
         console.error('[Leave Request] Error creating notifications table:', tableError);
       }
 
-      // สร้างการแจ้งเตือนให้ admin ทุกคน
+      // เนื้อหาการแจ้งเตือนร่วมกัน
       const notificationTitle = 'คำขอลางานใหม่';
       const notificationMessage = `${employeeName}${employeeDept ? ` (แผนก ${employeeDept})` : ''} ได้ส่งคำขอลางานรอการอนุมัติ`;
       const notificationType = 'info';
       
+      // สร้างการแจ้งเตือนให้ admin ทุกคน
       for (const admin of adminRows) {
         try {
           await connection.execute(
@@ -124,9 +142,29 @@ router.post('/request', authenticateToken, async (req, res) => {
           console.error(`[Leave Request] ❌ Error creating notification for admin user_id ${admin.user_id}:`, notifError);
         }
       }
+
+      // สร้างการแจ้งเตือนให้หัวหน้างาน (manager) ในแผนกเดียวกัน
+      for (const manager of managerRows) {
+        try {
+          await connection.execute(
+            `INSERT INTO notifications (user_id, title, message, type, leave_id, is_read)
+             VALUES (?, ?, ?, ?, ?, FALSE)`,
+            [
+              manager.user_id,
+              notificationTitle,
+              notificationMessage,
+              notificationType,
+              leaveId
+            ]
+          );
+          console.log(`[Leave Request] ✅ ส่งแจ้งเตือนสำเร็จไปยัง manager user_id ${manager.user_id}`);
+        } catch (notifError) {
+          console.error(`[Leave Request] ❌ Error creating notification for manager user_id ${manager.user_id}:`, notifError);
+        }
+      }
     } catch (notifError) {
       // Log error แต่ไม่ทำให้การส่งคำขอลาล้มเหลว
-      console.error('[Leave Request] Error creating notifications for admin:', notifError);
+      console.error('[Leave Request] Error creating notifications for approvers:', notifError);
     }
 
     res.status(201).json({

@@ -10,9 +10,12 @@ class AttendanceService extends ChangeNotifier {
   final WorkSchedule _defaultSchedule = WorkSchedule.defaultSchedule();
   String? _currentUserId; // เก็บ user ID ปัจจุบัน
   final List<AttendanceModel> _history = []; // ประวัติการทำงานทั้งหมด
+  List<String> _departments = [];
+
 
   AttendanceModel? get todayAttendance => _todayAttendance;
   List<AttendanceModel> get history => List.unmodifiable(_history);
+  List<String> get departments => List.unmodifiable(_departments);
 
   AttendanceService() {
     // เริ่มต้นด้วยข้อมูลว่าง ไม่โหลดจาก API
@@ -419,6 +422,68 @@ class AttendanceService extends ChangeNotifier {
 
   Future<void> refreshAttendance() async {
     await loadTodayAttendance();
+  }
+
+  /// โหลดรายชื่อแผนกทั้งหมดจากระบบ (distinct department จากตาราง employees)
+  Future<List<String>> fetchDepartments() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('auth_token');
+
+      if (token == null) {
+        return const [];
+      }
+
+      // ใช้ endpoint เดียวกับ HR dashboard: /api/hr/salary/employees?department=...
+      // แต่ backend ยังไม่มี endpoint รายชื่อแผนก จึงสร้างผ่าน /api/hr/employees/departments ถ้ามีใน ApiConfig
+      final uri = Uri.parse(ApiConfig.departmentsUrl);
+      final response = await http.get(
+        uri,
+        headers: ApiConfig.headersWithAuth(token),
+      );
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        List<String> result = [];
+
+        if (data is Map<String, dynamic>) {
+          // รองรับโครงสร้าง { departments: [...] } หรือ { data: [...] }
+          final list = (data['departments'] ?? data['data']) as List<dynamic>?;
+          if (list != null) {
+            result = list
+                .map((e) => e is String
+                    ? e
+                    : (e['department'] ?? e['name'] ?? '').toString())
+                .where((s) => s.trim().isNotEmpty)
+                .map((s) => s.trim())
+                .toSet()
+                .toList()
+              ..sort();
+          }
+        } else if (data is List) {
+          result = data
+              .map((e) => e is String
+                  ? e
+                  : (e['department'] ?? e['name'] ?? '').toString())
+              .where((s) => s.trim().isNotEmpty)
+              .map((s) => s.trim())
+              .toSet()
+              .toList()
+            ..sort();
+        }
+
+        _departments = result;
+        notifyListeners();
+        return result;
+      }
+
+      return const [];
+    } catch (e) {
+      if (kDebugMode) {
+        print('[AttendanceService] Error fetching departments: $e');
+      }
+      return const [];
+    }
   }
 
   /// โหลดประวัติการทำงานทั้งหมดของผู้ใช้ปัจจุบัน

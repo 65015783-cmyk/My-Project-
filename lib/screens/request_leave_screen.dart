@@ -550,7 +550,7 @@ class _RequestLeaveScreenState extends State<RequestLeaveScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('ส่งคำขอลางานสำเร็จ'),
+            content: Text('ส่งคำขอลางานเรียบร้อย รออนุมัติ'),
             backgroundColor: Colors.green,
           ),
         );

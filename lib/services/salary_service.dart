@@ -5,6 +5,9 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'package:intl/intl.dart';
+import 'package:flutter/services.dart' show rootBundle;
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
 import '../models/salary.dart';
 import '../config/api_config.dart';
 
@@ -14,6 +17,10 @@ class SalaryService extends ChangeNotifier {
   Salary? _selectedSalary; // เงินเดือนที่เลือกตามปี/เดือน
   bool _isLoading = false;
   String? _errorMessage;
+
+  // ฟอนต์ภาษาไทยสำหรับ PDF
+  pw.Font? _thaiFont;
+  pw.Font? _thaiBoldFont;
 
   List<Salary> get salaryHistory => _salaryHistory;
   Salary? get currentSalary => _currentSalary;
@@ -164,7 +171,7 @@ class SalaryService extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('auth_token');
 
-      // Mock: สร้างไฟล์ PDF ตัวอย่าง
+      // พยายามดาวน์โหลดจาก backend (ถ้ามี)
       try {
         final response = await http.get(
           Uri.parse('${ApiConfig.salarySlipDownloadUrl}?year=$year&month=$month'),
@@ -190,17 +197,17 @@ class SalaryService extends ChangeNotifier {
         debugPrint('API download failed, creating mock PDF: $e');
       }
 
-      // สร้าง Mock PDF (ไฟล์ข้อความแทน PDF จริง)
+      // สร้าง Mock PDF ถ้า backend ยังไม่รองรับ
+      final salary = _selectedSalary ?? _createMockSalary(year, month);
       final directory = await getApplicationDocumentsDirectory();
-      final fileName = 'สลิปเงินเดือน_${year}_${month.toString().padLeft(2, '0')}.txt';
+      final fileName = 'สลิปเงินเดือน_${year}_${month.toString().padLeft(2, '0')}.pdf';
       final filePath = '${directory.path}/$fileName';
       final file = File(filePath);
-      
-      final salary = _selectedSalary ?? _createMockSalary(year, month);
-      final slipContent = _generateMockSlipContent(salary, year, month);
-      
-      await file.writeAsString(slipContent, encoding: utf8);
-      
+
+      final pdf = await _generateMockSlipPdf(salary, year, month);
+      final bytes = await pdf.save();
+      await file.writeAsBytes(bytes);
+
       return filePath;
     } catch (e) {
       debugPrint('Error downloading salary slip: $e');
@@ -208,50 +215,146 @@ class SalaryService extends ChangeNotifier {
     }
   }
 
-  // สร้างเนื้อหาสลิปเงินเดือน Mock
-  String _generateMockSlipContent(Salary salary, int year, int month) {
-    final monthName = _getThaiMonth(month);
-    final dateFormat = DateFormat('dd MMMM yyyy', 'th');
-    
-    return '''
-╔═══════════════════════════════════════════════════════════╗
-║              สลิปเงินเดือน - Salary Slip                    ║
-╠═══════════════════════════════════════════════════════════╣
-║ งวด: $monthName $year                                      ║
-║ วันที่จ่าย: ${dateFormat.format(salary.paymentDate)}                      ║
-╠═══════════════════════════════════════════════════════════╣
-║ รายได้ (Income)                                            ║
-╠═══════════════════════════════════════════════════════════╣
-║ เงินเดือนพื้นฐาน        ${salary.baseSalary.toStringAsFixed(2).padLeft(15)} บาท ║
-║ โบนัส                    ${salary.bonus.toStringAsFixed(2).padLeft(15)} บาท ║
-║ ค่าล่วงเวลา              ${salary.overtime.toStringAsFixed(2).padLeft(15)} บาท ║
-║ เบี้ยเลี้ยง              ${salary.allowance.toStringAsFixed(2).padLeft(15)} บาท ║
-║ ค่าเดินทาง              ${salary.transportAllowance.toStringAsFixed(2).padLeft(15)} บาท ║
-║ รายได้อื่นๆ              ${salary.otherIncome.toStringAsFixed(2).padLeft(15)} บาท ║
-║ ───────────────────────────────────────────────────────── ║
-║ รวมรายได้                ${salary.totalIncome.toStringAsFixed(2).padLeft(15)} บาท ║
-╠═══════════════════════════════════════════════════════════╣
-║ รายการหัก (Deductions)                                     ║
-╠═══════════════════════════════════════════════════════════╣
-║ ภาษีเงินได้หัก ณ ที่จ่าย  ${salary.tax.toStringAsFixed(2).padLeft(15)} บาท ║
-║ ประกันสังคม              ${salary.socialSecurity.toStringAsFixed(2).padLeft(15)} บาท ║
-║ กองทุนสำรองเลี้ยงชีพ      ${salary.providentFund.toStringAsFixed(2).padLeft(15)} บาท ║
-║ เงินกู้/เงินยืม            ${salary.loan.toStringAsFixed(2).padLeft(15)} บาท ║
-║ ค่าปรับ                  ${salary.fine.toStringAsFixed(2).padLeft(15)} บาท ║
-║ การหักอื่นๆ              ${salary.otherDeductions.toStringAsFixed(2).padLeft(15)} บาท ║
-║ ───────────────────────────────────────────────────────── ║
-║ รวมรายการหัก              ${salary.totalDeductions.toStringAsFixed(2).padLeft(15)} บาท ║
-╠═══════════════════════════════════════════════════════════╣
-║ เงินเดือนสุทธิ (Net Salary)                                ║
-║                    ${salary.netSalary.toStringAsFixed(2).padLeft(15)} บาท ║
-╠═══════════════════════════════════════════════════════════╣
-║ สถิติการทำงาน                                              ║
-║ วันทำงาน: ${salary.workDays} วัน | วันลา: ${salary.leaveDays} วัน | OT: ${salary.overtimeHours.toInt()} ชม. ║
-╚═══════════════════════════════════════════════════════════╝
+  Future<void> _ensureThaiFontsLoaded() async {
+    if (_thaiFont != null) return;
+    try {
+      final regularData =
+          await rootBundle.load('assets/fonts/NotoSansThai-Regular.ttf');
+      _thaiFont = pw.Font.ttf(regularData);
+      _thaiBoldFont = _thaiFont;
+    } catch (e) {
+      debugPrint('Error loading Thai fonts for salary PDF: $e');
+    }
+  }
 
-หมายเหตุ: นี่เป็นสลิปเงินเดือนตัวอย่าง (Mock Data)
-สำหรับการทดสอบระบบเท่านั้น
-''';
+  // สร้าง PDF สลิปเงินเดือน Mock (รองรับภาษาไทย)
+  Future<pw.Document> _generateMockSlipPdf(
+      Salary salary, int year, int month) async {
+    await _ensureThaiFontsLoaded();
+
+    final monthName = DateFormat('LLLL', 'th').format(DateTime(year, month));
+    final dateFormat = DateFormat('d MMMM yyyy', 'th');
+
+    final theme = (_thaiFont != null)
+        ? pw.ThemeData.withFont(
+            base: _thaiFont!,
+            bold: _thaiBoldFont ?? _thaiFont!,
+          )
+        : pw.ThemeData.base();
+
+    final doc = pw.Document(theme: theme);
+
+    doc.addPage(
+      pw.Page(
+        pageFormat: PdfPageFormat.a4,
+        margin: const pw.EdgeInsets.all(32),
+        build: (context) {
+          return pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              pw.Text(
+                'สลิปเงินเดือน (Salary Slip)',
+                style: pw.TextStyle(
+                  fontSize: 22,
+                  fontWeight: pw.FontWeight.bold,
+                  font: _thaiBoldFont ?? _thaiFont,
+                ),
+              ),
+              pw.SizedBox(height: 4),
+              pw.Text(
+                'งวด: $monthName ${year + 543}',
+                style: pw.TextStyle(fontSize: 12, font: _thaiFont),
+              ),
+              pw.Text(
+                'วันที่จ่าย: ${dateFormat.format(salary.paymentDate)}',
+                style: pw.TextStyle(fontSize: 12, font: _thaiFont),
+              ),
+              pw.SizedBox(height: 16),
+              pw.Text(
+                'รายได้ (Income)',
+                style: pw.TextStyle(
+                  fontSize: 16,
+                  fontWeight: pw.FontWeight.bold,
+                  font: _thaiBoldFont ?? _thaiFont,
+                ),
+              ),
+              pw.Divider(),
+              _buildLine('เงินเดือนพื้นฐาน', salary.baseSalary),
+              _buildLine('โบนัส', salary.bonus),
+              _buildLine('ค่าล่วงเวลา', salary.overtime),
+              _buildLine('เบี้ยเลี้ยง', salary.allowance),
+              _buildLine('ค่าเดินทาง', salary.transportAllowance),
+              _buildLine('รายได้อื่นๆ', salary.otherIncome),
+              pw.Divider(),
+              _buildLine('รวมรายได้', salary.totalIncome, isBold: true),
+              pw.SizedBox(height: 16),
+              pw.Text(
+                'รายการหัก (Deductions)',
+                style: pw.TextStyle(
+                  fontSize: 16,
+                  fontWeight: pw.FontWeight.bold,
+                  font: _thaiBoldFont ?? _thaiFont,
+                ),
+              ),
+              pw.Divider(),
+              _buildLine('ภาษีหัก ณ ที่จ่าย', salary.tax),
+              _buildLine('ประกันสังคม', salary.socialSecurity),
+              _buildLine('กองทุนสำรองเลี้ยงชีพ', salary.providentFund),
+              _buildLine('เงินกู้/เงินยืม', salary.loan),
+              _buildLine('ค่าปรับ', salary.fine),
+              _buildLine('การหักอื่นๆ', salary.otherDeductions),
+              pw.Divider(),
+              _buildLine('รวมรายการหัก', salary.totalDeductions,
+                  isBold: true),
+              pw.SizedBox(height: 16),
+              pw.Text(
+                'เงินเดือนสุทธิ (Net Salary)',
+                style: pw.TextStyle(
+                  fontSize: 16,
+                  fontWeight: pw.FontWeight.bold,
+                  font: _thaiBoldFont ?? _thaiFont,
+                ),
+              ),
+              pw.Divider(),
+              _buildLine('เงินเดือนสุทธิ', salary.netSalary, isBold: true),
+              pw.SizedBox(height: 24),
+              pw.Text(
+                'สถิติการทำงาน: วันทำงาน ${salary.workDays} วัน, วันลา ${salary.leaveDays} วัน, OT ${salary.overtimeHours.toInt()} ชม.',
+                style: pw.TextStyle(fontSize: 12, font: _thaiFont),
+              ),
+              pw.SizedBox(height: 16),
+              pw.Text(
+                'หมายเหตุ: นี่เป็นสลิปเงินเดือนตัวอย่างที่สร้างจากระบบเพื่อใช้ทดสอบเท่านั้น',
+                style: pw.TextStyle(fontSize: 10, font: _thaiFont),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+
+    return doc;
+  }
+
+  pw.Widget _buildLine(String label, num value, {bool isBold = false}) {
+    final textStyle = pw.TextStyle(
+      fontSize: 12,
+      fontWeight: isBold ? pw.FontWeight.bold : pw.FontWeight.normal,
+      font: isBold ? (_thaiBoldFont ?? _thaiFont) : _thaiFont,
+    );
+    return pw.Padding(
+      padding: const pw.EdgeInsets.symmetric(vertical: 2),
+      child: pw.Row(
+        mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+        children: [
+          pw.Text(label, style: textStyle),
+          pw.Text(
+            value.toStringAsFixed(2),
+            style: textStyle,
+          ),
+        ],
+      ),
+    );
   }
 
   String _getThaiMonth(int month) {

@@ -181,6 +181,35 @@ router.get('/salary/employees', authenticateToken, requireHR, async (req, res) =
 });
 
 // ===========================
+// GET /api/hr/departments - รายชื่อแผนกทั้งหมด (distinct)
+// ===========================
+router.get('/departments', authenticateToken, async (req, res) => {
+  let connection;
+  try {
+    connection = await pool.getConnection();
+
+    const [rows] = await connection.execute(
+      `SELECT DISTINCT 
+         TRIM(COALESCE(department, '')) as department
+       FROM employees
+       WHERE TRIM(COALESCE(department, '')) <> ''
+       ORDER BY department ASC`
+    );
+
+    const departments = rows
+      .map((r) => r.department)
+      .filter((d) => typeof d === 'string' && d.trim().length > 0);
+
+    res.json({ departments });
+  } catch (error) {
+    console.error('Get departments error:', error);
+    res.status(500).json({ message: 'เกิดข้อผิดพลาดในการดึงรายชื่อแผนก' });
+  } finally {
+    if (connection) connection.release();
+  }
+});
+
+// ===========================
 // GET /api/hr/salary/recent-adjustments - การปรับเงินเดือนล่าสุด
 // ===========================
 router.get('/salary/recent-adjustments', authenticateToken, requireHR, async (req, res) => {

@@ -51,6 +51,9 @@ class ApiConfig {
   static String get hrSalaryAdjustUrl => '$baseUrl/api/hr/salary/adjust';
   static String get hrSalaryEmployeeHistoryUrl => '$baseUrl/api/hr/salary/employee-history';
   static String get hrPayrollOverviewUrl => '$baseUrl/api/hr/payroll/overview';
+
+  // Department Endpoints
+  static String get departmentsUrl => '$baseUrl/api/hr/departments';
   
   // Employee Salary Endpoints
   static String get salarySummaryUrl => '$baseUrl/api/salary/summary';

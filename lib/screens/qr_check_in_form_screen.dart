@@ -22,6 +22,10 @@ class _QRCheckInFormScreenState extends State<QRCheckInFormScreen> {
   final _nameController = TextEditingController();
   final _employeeIdController = TextEditingController();
   final _departmentController = TextEditingController();
+  String? _selectedDepartment;
+  // รายชื่อแผนกจากระบบ (โหลดจาก backend)
+  List<String> _departmentOptions = [];
+  bool _isLoadingDepartments = false;
   final ImagePicker _imagePicker = ImagePicker();
   XFile? _selfieImage;
   bool _isSubmitting = false;
@@ -31,13 +35,61 @@ class _QRCheckInFormScreenState extends State<QRCheckInFormScreen> {
     super.initState();
     // Pre-fill data from QR Code if available
     // This QR Code belongs to the person who needs to check in
+
+    _loadDepartments();
+
     if (widget.qrData != null) {
       final data = widget.qrData!;
       _nameController.text =
           (data['userName'] ?? data['n'] ?? '').toString();
       _employeeIdController.text =
           (data['userId'] ?? data['u'] ?? '').toString();
-      // Department should be filled by the person scanning (who knows the department)
+      // ถ้า QR มีข้อมูลแผนกมาให้ ให้ใช้เป็นค่าเริ่มต้นของดรอปดาวน์
+      // ใช้เฉพาะ key 'department' เพื่อไม่ให้สับสนกับค่าอื่น (เช่น วันที่)
+      final dept = data['department']?.toString();
+      if (dept != null && dept.isNotEmpty) {
+        _selectedDepartment = dept;
+        _departmentController.text = dept;
+      }
+      // กรณีไม่มีใน QR ให้ผู้ใช้เลือกแผนกเองจากดรอปดาวน์
+    }
+  }
+
+  Future<void> _loadDepartments() async {
+    try {
+      setState(() {
+        _isLoadingDepartments = true;
+      });
+
+      // TODO: ถ้ามี DepartmentService แยกอยู่แล้วให้ย้าย logic ไปใช้ service
+      // ตอนนี้ใช้ AttendanceService ชั่วคราวในการเรียก backend ตัวเดียวกัน
+      final attendanceService =
+          Provider.of<AttendanceService>(context, listen: false);
+      final departments =
+          await attendanceService.fetchDepartments(); // ต้องมีเมทอดนี้ใน service
+
+      if (!mounted) return;
+
+      setState(() {
+        _departmentOptions = departments;
+        // ถ้า QR ใส่ department มาแล้ว และอยู่ในลิสต์ ให้เซ็ต selected ด้วย
+        if (_departmentController.text.isNotEmpty &&
+            _departmentOptions.contains(_departmentController.text)) {
+          _selectedDepartment = _departmentController.text;
+        }
+        _isLoadingDepartments = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isLoadingDepartments = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('โหลดรายชื่อแผนกไม่สำเร็จ: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
     }
   }
 
@@ -260,17 +312,7 @@ class _QRCheckInFormScreenState extends State<QRCheckInFormScreen> {
               const SizedBox(height: 16),
 
               // Department Field
-              _buildTextField(
-                controller: _departmentController,
-                label: 'แผนก',
-                icon: Icons.business,
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'กรุณากรอกแผนก';
-                  }
-                  return null;
-                },
-              ),
+              _buildDepartmentDropdownField(),
               const SizedBox(height: 24),
 
               // Selfie Section
@@ -511,6 +553,61 @@ class _QRCheckInFormScreenState extends State<QRCheckInFormScreen> {
         decoration: InputDecoration(
           labelText: label,
           prefixIcon: Icon(icon, color: Colors.blue),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(16),
+            borderSide: BorderSide.none,
+          ),
+          filled: true,
+          fillColor: Colors.white,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDepartmentDropdownField() {
+    // ให้แน่ใจว่า value อยู่ในลิสต์ options เท่านั้น
+    final String? effectiveValue = (_selectedDepartment != null &&
+            _departmentOptions.contains(_selectedDepartment))
+        ? _selectedDepartment
+        : null;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: DropdownButtonFormField<String>(
+        value: effectiveValue,
+        items: _departmentOptions
+            .map(
+              (dept) => DropdownMenuItem<String>(
+                value: dept,
+                child: Text(dept),
+              ),
+            )
+            .toList(),
+        onChanged: (value) {
+          setState(() {
+            _selectedDepartment = value;
+            _departmentController.text = value ?? '';
+          });
+        },
+        validator: (value) {
+          if (value == null || value.isEmpty) {
+            return 'กรุณาเลือกแผนก';
+          }
+          return null;
+        },
+        decoration: InputDecoration(
+          labelText: 'แผนก',
+          prefixIcon: const Icon(Icons.business, color: Colors.blue),
           border: OutlineInputBorder(
             borderRadius: BorderRadius.circular(16),
             borderSide: BorderSide.none,

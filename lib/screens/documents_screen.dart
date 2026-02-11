@@ -1,11 +1,33 @@
 import 'package:flutter/material.dart';
+import 'package:open_filex/open_filex.dart';
+import 'package:path_provider/path_provider.dart';
+import 'dart:io';
+import 'dart:convert';
+import 'package:provider/provider.dart';
+import '../services/salary_service.dart';
+import '../services/auth_service.dart';
+import 'package:intl/intl.dart';
+import 'package:flutter/services.dart' show rootBundle;
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
 
-class DocumentsScreen extends StatelessWidget {
+class DocumentsScreen extends StatefulWidget {
   const DocumentsScreen({super.key});
 
   @override
+  State<DocumentsScreen> createState() => _DocumentsScreenState();
+}
+
+class _DocumentsScreenState extends State<DocumentsScreen> {
+  bool _isDownloading = false;
+  pw.Font? _thaiFont;
+  pw.Font? _thaiBoldFont;
+
+  List<DocumentItem> get _documents => _getMockDocuments();
+
+  @override
   Widget build(BuildContext context) {
-    final documents = _getMockDocuments();
+    final documents = _documents;
 
     return Scaffold(
       backgroundColor: const Color(0xFFF5F5F5),
@@ -95,10 +117,18 @@ class DocumentsScreen extends StatelessWidget {
           ],
         ),
         trailing: IconButton(
-          icon: const Icon(Icons.download, color: Colors.blue),
-          onPressed: () {
-            // Download document
-          },
+          icon: _isDownloading
+              ? const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.download, color: Colors.blue),
+          onPressed: _isDownloading
+              ? null
+              : () {
+                  _handleDownload(doc);
+                },
         ),
       ),
     );
@@ -107,24 +137,316 @@ class DocumentsScreen extends StatelessWidget {
   List<DocumentItem> _getMockDocuments() {
     return [
       DocumentItem(
-        title: 'สลิปเงินเดือน',
-        description: 'สลิปเงินเดือน เดือนพฤศจิกายน 2568',
-        date: '1 ธันวาคม 2568',
+        title: 'สลิปเงินเดือนล่าสุด',
+        description: 'ดาวน์โหลดสลิปเงินเดือนของเดือนปัจจุบัน',
+        date: DateFormat('d MMM yyyy', 'th').format(DateTime.now()),
         type: DocumentType.payslip,
       ),
       DocumentItem(
         title: 'ใบรับรองการทำงาน',
-        description: 'เอกสารรับรองการทำงาน',
-        date: '15 พฤศจิกายน 2568',
+        description: 'ดาวน์โหลดใบรับรองการทำงาน (ตัวอย่าง)',
+        date: DateFormat('d MMM yyyy', 'th').format(DateTime.now()),
         type: DocumentType.certificate,
       ),
       DocumentItem(
         title: 'รายงานการทำงาน',
-        description: 'รายงานการทำงานประจำเดือน',
-        date: '1 พฤศจิกายน 2568',
+        description: 'รายงานการทำงานประจำเดือน (ตัวอย่าง)',
+        date: DateFormat('d MMM yyyy', 'th').format(DateTime.now()),
         type: DocumentType.report,
       ),
     ];
+  }
+
+  Future<void> _handleDownload(DocumentItem doc) async {
+    setState(() {
+      _isDownloading = true;
+    });
+
+    try {
+      String? filePath;
+
+      if (doc.type == DocumentType.payslip) {
+        // ดาวน์โหลดสลิปเงินเดือนของเดือนปัจจุบัน (ให้ SalaryService จัดการ)
+        final now = DateTime.now();
+        final salaryService =
+            Provider.of<SalaryService>(context, listen: false);
+        filePath = await salaryService.downloadSalarySlip(
+          year: now.year,
+          month: now.month,
+        );
+      } else if (doc.type == DocumentType.certificate) {
+        // สร้างใบรับรองการทำงานเป็น PDF สวยๆ
+        filePath = await _generateCertificatePdf(doc);
+      } else if (doc.type == DocumentType.report) {
+        // สร้างรายงานการทำงานเป็น PDF ตัวอย่าง
+        filePath = await _generateWorkReportPdf(doc);
+      }
+
+      if (!mounted) return;
+
+      if (filePath != null) {
+        await OpenFilex.open(filePath);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('กำลังเปิดไฟล์: ${doc.title}'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('ไม่สามารถดาวน์โหลดเอกสารได้'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('เกิดข้อผิดพลาดในการดาวน์โหลดเอกสาร: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isDownloading = false;
+        });
+      }
+    }
+  }
+
+  Future<String> _generateCertificatePdf(DocumentItem doc) async {
+    final authService = Provider.of<AuthService>(context, listen: false);
+    final user = authService.currentUser;
+    final fullName = (user?.fullName ??
+            '${user?.firstName ?? ''} ${user?.lastName ?? ''}')
+        .trim();
+    final position = user?.position ?? 'พนักงานบริษัท';
+    final department = user?.department ?? '';
+
+    final now = DateTime.now();
+    final dateStr = DateFormat('d MMMM yyyy', 'th').format(now);
+
+    final theme = await _thaiTheme();
+    final pdf = pw.Document(theme: theme);
+
+    pdf.addPage(
+      pw.Page(
+        pageFormat: PdfPageFormat.a4,
+        build: (context) {
+          return pw.Container(
+            padding: const pw.EdgeInsets.all(40),
+            decoration: pw.BoxDecoration(
+              border: pw.Border.all(color: PdfColors.grey700, width: 2),
+            ),
+            child: pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.center,
+              children: [
+                pw.SizedBox(height: 16),
+                pw.Text(
+                  'ใบรับรองการทำงาน',
+                  style: pw.TextStyle(
+                    fontSize: 26,
+                    fontWeight: pw.FontWeight.bold,
+                    font: _thaiBoldFont ?? _thaiFont,
+                  ),
+                ),
+                pw.SizedBox(height: 24),
+                pw.Text(
+                  'บริษัท ฮัมแมนส์ จำกัด',
+                  style: pw.TextStyle(
+                    fontSize: 18,
+                    fontWeight: pw.FontWeight.bold,
+                    font: _thaiBoldFont ?? _thaiFont,
+                  ),
+                ),
+                pw.SizedBox(height: 32),
+                pw.Align(
+                  alignment: pw.Alignment.centerLeft,
+                  child: pw.Text(
+                    'หนังสือฉบับนี้ให้ไว้เพื่อรับรองว่า',
+                    style: pw.TextStyle(fontSize: 14, font: _thaiFont),
+                  ),
+                ),
+                pw.SizedBox(height: 16),
+                pw.Text(
+                  fullName.isNotEmpty ? fullName : 'ชื่อ-นามสกุลพนักงาน',
+                  style: pw.TextStyle(
+                    fontSize: 20,
+                    fontWeight: pw.FontWeight.bold,
+                    font: _thaiBoldFont ?? _thaiFont,
+                  ),
+                ),
+                pw.SizedBox(height: 8),
+                pw.Text(
+                  'ตำแหน่ง: $position' +
+                      (department.isNotEmpty ? ' | แผนก: $department' : ''),
+                  style: pw.TextStyle(fontSize: 14, font: _thaiFont),
+                ),
+                pw.SizedBox(height: 24),
+                pw.Text(
+                  'ปัจจุบันปฏิบัติงานอยู่กับบริษัท ฮัมแมนส์ จำกัด โดยมีความรับผิดชอบตามตำแหน่งดังกล่าว',
+                  style: pw.TextStyle(fontSize: 14, font: _thaiFont),
+                  textAlign: pw.TextAlign.justify,
+                ),
+                pw.SizedBox(height: 16),
+                pw.Text(
+                  'หนังสือรับรองฉบับนี้ออกให้เพื่อใช้เป็นหลักฐานประกอบการดำเนินการที่เกี่ยวข้องตามความประสงค์ของพนักงาน',
+                  style: pw.TextStyle(fontSize: 14, font: _thaiFont),
+                  textAlign: pw.TextAlign.justify,
+                ),
+                pw.Spacer(),
+                pw.Align(
+                  alignment: pw.Alignment.centerRight,
+                  child: pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.center,
+                    children: [
+                      pw.Text(
+                        'ออกให้ ณ วันที่ $dateStr',
+                        style: pw.TextStyle(fontSize: 12, font: _thaiFont),
+                      ),
+                      pw.SizedBox(height: 32),
+                      pw.Text(
+                        '................................................',
+                        style: const pw.TextStyle(fontSize: 14),
+                      ),
+                      pw.SizedBox(height: 4),
+                      pw.Text(
+                        'ผู้มีอำนาจลงนาม',
+                        style: pw.TextStyle(fontSize: 12, font: _thaiFont),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+
+    final bytes = await pdf.save();
+    final directory = await getApplicationDocumentsDirectory();
+    final fileName =
+        'ใบรับรองการทำงาน_${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}.pdf';
+    final file = File('${directory.path}/$fileName');
+    await file.writeAsBytes(bytes);
+    return file.path;
+  }
+
+  Future<String> _generateWorkReportPdf(DocumentItem doc) async {
+    final authService = Provider.of<AuthService>(context, listen: false);
+    final user = authService.currentUser;
+    final fullName = (user?.fullName ??
+            '${user?.firstName ?? ''} ${user?.lastName ?? ''}')
+        .trim();
+    final position = user?.position ?? 'พนักงานบริษัท';
+    final department = user?.department ?? '';
+
+    final now = DateTime.now();
+    final monthStr = DateFormat('MMMM yyyy', 'th').format(now);
+
+    final theme = await _thaiTheme();
+    final pdf = pw.Document(theme: theme);
+
+    pdf.addPage(
+      pw.Page(
+        pageFormat: PdfPageFormat.a4,
+        margin: const pw.EdgeInsets.all(32),
+        build: (context) {
+          return pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              pw.Text(
+                'รายงานการทำงานประจำเดือน',
+                style: pw.TextStyle(
+                  fontSize: 22,
+                  fontWeight: pw.FontWeight.bold,
+                  font: _thaiBoldFont ?? _thaiFont,
+                ),
+              ),
+              pw.SizedBox(height: 8),
+              pw.Text(
+                monthStr,
+                style: pw.TextStyle(fontSize: 14, font: _thaiFont),
+              ),
+              pw.SizedBox(height: 24),
+              pw.Text(
+                'ชื่อพนักงาน: ${fullName.isNotEmpty ? fullName : 'ชื่อ-นามสกุลพนักงาน'}',
+                style: pw.TextStyle(fontSize: 14, font: _thaiFont),
+              ),
+              pw.SizedBox(height: 4),
+              pw.Text(
+                'ตำแหน่ง: $position',
+                style: pw.TextStyle(fontSize: 14, font: _thaiFont),
+              ),
+              if (department.isNotEmpty) ...[
+                pw.SizedBox(height: 4),
+                pw.Text(
+                  'แผนก: $department',
+                  style: pw.TextStyle(fontSize: 14, font: _thaiFont),
+                ),
+              ],
+              pw.SizedBox(height: 24),
+              pw.Text(
+                'สรุปการทำงาน (ตัวอย่าง):',
+                style: pw.TextStyle(
+                  fontSize: 16,
+                  fontWeight: pw.FontWeight.bold,
+                  font: _thaiBoldFont ?? _thaiFont,
+                ),
+              ),
+              pw.SizedBox(height: 12),
+              pw.Bullet(
+                text: 'ปฏิบัติงานตามหน้าที่และความรับผิดชอบครบถ้วนตลอดเดือน',
+                style: pw.TextStyle(font: _thaiFont),
+              ),
+              pw.Bullet(
+                text: 'เข้าร่วมประชุมและกิจกรรมภายในองค์กรอย่างสม่ำเสมอ',
+                style: pw.TextStyle(font: _thaiFont),
+              ),
+              pw.Bullet(
+                text: 'ให้ความร่วมมือกับเพื่อนร่วมงานและผู้บังคับบัญชาเป็นอย่างดี',
+                style: pw.TextStyle(font: _thaiFont),
+              ),
+              pw.SizedBox(height: 24),
+              pw.Text(
+                'หมายเหตุ: รายงานฉบับนี้เป็นตัวอย่างที่สร้างจากระบบเพื่อใช้ทดสอบการดาวน์โหลดเอกสารเท่านั้น',
+                style: pw.TextStyle(fontSize: 12, font: _thaiFont),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+
+    final bytes = await pdf.save();
+    final directory = await getApplicationDocumentsDirectory();
+    final fileName =
+        'รายงานการทำงาน_${now.year}${now.month.toString().padLeft(2, '0')}.pdf';
+    final file = File('${directory.path}/$fileName');
+    await file.writeAsBytes(bytes);
+    return file.path;
+  }
+
+  Future<pw.ThemeData> _thaiTheme() async {
+    try {
+      if (_thaiFont == null) {
+        final regularData =
+            await rootBundle.load('assets/fonts/NotoSansThai-Regular.ttf');
+        _thaiFont = pw.Font.ttf(regularData);
+        _thaiBoldFont = _thaiFont;
+      }
+      return pw.ThemeData.withFont(
+        base: _thaiFont!,
+        bold: _thaiBoldFont ?? _thaiFont!,
+      );
+    } catch (e) {
+      // ถ้าโหลดฟอนต์ไม่สำเร็จ ให้ใช้ธีมปกติ (ตัวอักษรอังกฤษจะยังแสดงได้)
+      return pw.ThemeData.base();
+    }
   }
 }
 
