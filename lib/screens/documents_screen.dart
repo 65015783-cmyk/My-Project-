@@ -1,13 +1,17 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:path_provider/path_provider.dart';
 import 'dart:io';
 import 'dart:convert';
+import 'dart:typed_data';
 import 'package:provider/provider.dart';
 import '../services/salary_service.dart';
 import '../services/auth_service.dart';
 import 'package:intl/intl.dart';
-import 'package:flutter/services.dart' show rootBundle;
+import 'package:http/http.dart' as http;
+import 'package:google_fonts/google_fonts.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 
@@ -19,7 +23,8 @@ class DocumentsScreen extends StatefulWidget {
 }
 
 class _DocumentsScreenState extends State<DocumentsScreen> {
-  bool _isDownloading = false;
+  // เก็บ state การดาวน์โหลดแยกตามแต่ละเอกสาร
+  final Set<DocumentType> _downloadingTypes = {};
   pw.Font? _thaiFont;
   pw.Font? _thaiBoldFont;
 
@@ -70,6 +75,8 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
   }
 
   Widget _buildDocumentCard(DocumentItem doc) {
+    final isDownloading = _downloadingTypes.contains(doc.type);
+    
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       shape: RoundedRectangleBorder(
@@ -117,14 +124,14 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
           ],
         ),
         trailing: IconButton(
-          icon: _isDownloading
+          icon: isDownloading
               ? const SizedBox(
                   width: 20,
                   height: 20,
                   child: CircularProgressIndicator(strokeWidth: 2),
                 )
               : const Icon(Icons.download, color: Colors.blue),
-          onPressed: _isDownloading
+          onPressed: isDownloading
               ? null
               : () {
                   _handleDownload(doc);
@@ -158,8 +165,9 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
   }
 
   Future<void> _handleDownload(DocumentItem doc) async {
+    // เพิ่ม type นี้เข้าไปใน set ของเอกสารที่กำลังดาวน์โหลด
     setState(() {
-      _isDownloading = true;
+      _downloadingTypes.add(doc.type);
     });
 
     try {
@@ -211,13 +219,23 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
     } finally {
       if (mounted) {
         setState(() {
-          _isDownloading = false;
+          // ลบ type นี้ออกจาก set เมื่อดาวน์โหลดเสร็จ
+          _downloadingTypes.remove(doc.type);
         });
       }
     }
   }
 
   Future<String> _generateCertificatePdf(DocumentItem doc) async {
+    // โหลดฟอนต์ภาษาไทยก่อนสร้าง PDF
+    await _thaiTheme();
+    
+    // ตรวจสอบว่าฟอนต์โหลดสำเร็จหรือไม่
+    if (_thaiFont == null) {
+      // แสดง warning แต่ยังสร้าง PDF ได้ (จะใช้ฟอนต์ default)
+      debugPrint('Warning: Thai font not loaded. PDF will be created with default font.');
+    }
+    
     final authService = Provider.of<AuthService>(context, listen: false);
     final user = authService.currentUser;
     final fullName = (user?.fullName ??
@@ -229,7 +247,10 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
     final now = DateTime.now();
     final dateStr = DateFormat('d MMMM yyyy', 'th').format(now);
 
-    final theme = await _thaiTheme();
+    final theme = pw.ThemeData.withFont(
+      base: _thaiFont!,
+      bold: _thaiBoldFont ?? _thaiFont!,
+    );
     final pdf = pw.Document(theme: theme);
 
     pdf.addPage(
@@ -250,7 +271,7 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
                   style: pw.TextStyle(
                     fontSize: 26,
                     fontWeight: pw.FontWeight.bold,
-                    font: _thaiBoldFont ?? _thaiFont,
+                    font: _thaiBoldFont ?? _thaiFont!,
                   ),
                 ),
                 pw.SizedBox(height: 24),
@@ -259,7 +280,7 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
                   style: pw.TextStyle(
                     fontSize: 18,
                     fontWeight: pw.FontWeight.bold,
-                    font: _thaiBoldFont ?? _thaiFont,
+                    font: _thaiBoldFont ?? _thaiFont!,
                   ),
                 ),
                 pw.SizedBox(height: 32),
@@ -267,7 +288,7 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
                   alignment: pw.Alignment.centerLeft,
                   child: pw.Text(
                     'หนังสือฉบับนี้ให้ไว้เพื่อรับรองว่า',
-                    style: pw.TextStyle(fontSize: 14, font: _thaiFont),
+                    style: pw.TextStyle(fontSize: 14, font: _thaiFont!),
                   ),
                 ),
                 pw.SizedBox(height: 16),
@@ -276,25 +297,25 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
                   style: pw.TextStyle(
                     fontSize: 20,
                     fontWeight: pw.FontWeight.bold,
-                    font: _thaiBoldFont ?? _thaiFont,
+                    font: _thaiBoldFont ?? _thaiFont!,
                   ),
                 ),
                 pw.SizedBox(height: 8),
                 pw.Text(
                   'ตำแหน่ง: $position' +
                       (department.isNotEmpty ? ' | แผนก: $department' : ''),
-                  style: pw.TextStyle(fontSize: 14, font: _thaiFont),
+                  style: pw.TextStyle(fontSize: 14, font: _thaiFont!),
                 ),
                 pw.SizedBox(height: 24),
                 pw.Text(
                   'ปัจจุบันปฏิบัติงานอยู่กับบริษัท ฮัมแมนส์ จำกัด โดยมีความรับผิดชอบตามตำแหน่งดังกล่าว',
-                  style: pw.TextStyle(fontSize: 14, font: _thaiFont),
+                  style: pw.TextStyle(fontSize: 14, font: _thaiFont!),
                   textAlign: pw.TextAlign.justify,
                 ),
                 pw.SizedBox(height: 16),
                 pw.Text(
                   'หนังสือรับรองฉบับนี้ออกให้เพื่อใช้เป็นหลักฐานประกอบการดำเนินการที่เกี่ยวข้องตามความประสงค์ของพนักงาน',
-                  style: pw.TextStyle(fontSize: 14, font: _thaiFont),
+                  style: pw.TextStyle(fontSize: 14, font: _thaiFont!),
                   textAlign: pw.TextAlign.justify,
                 ),
                 pw.Spacer(),
@@ -305,7 +326,7 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
                     children: [
                       pw.Text(
                         'ออกให้ ณ วันที่ $dateStr',
-                        style: pw.TextStyle(fontSize: 12, font: _thaiFont),
+                        style: pw.TextStyle(fontSize: 12, font: _thaiFont!),
                       ),
                       pw.SizedBox(height: 32),
                       pw.Text(
@@ -315,7 +336,7 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
                       pw.SizedBox(height: 4),
                       pw.Text(
                         'ผู้มีอำนาจลงนาม',
-                        style: pw.TextStyle(fontSize: 12, font: _thaiFont),
+                        style: pw.TextStyle(fontSize: 12, font: _thaiFont!),
                       ),
                     ],
                   ),
@@ -337,6 +358,15 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
   }
 
   Future<String> _generateWorkReportPdf(DocumentItem doc) async {
+    // โหลดฟอนต์ภาษาไทยก่อนสร้าง PDF
+    await _thaiTheme();
+    
+    // ตรวจสอบว่าฟอนต์โหลดสำเร็จหรือไม่
+    if (_thaiFont == null) {
+      // แสดง warning แต่ยังสร้าง PDF ได้ (จะใช้ฟอนต์ default)
+      debugPrint('Warning: Thai font not loaded. PDF will be created with default font.');
+    }
+    
     final authService = Provider.of<AuthService>(context, listen: false);
     final user = authService.currentUser;
     final fullName = (user?.fullName ??
@@ -348,7 +378,10 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
     final now = DateTime.now();
     final monthStr = DateFormat('MMMM yyyy', 'th').format(now);
 
-    final theme = await _thaiTheme();
+    final theme = pw.ThemeData.withFont(
+      base: _thaiFont!,
+      bold: _thaiBoldFont ?? _thaiFont!,
+    );
     final pdf = pw.Document(theme: theme);
 
     pdf.addPage(
@@ -364,29 +397,29 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
                 style: pw.TextStyle(
                   fontSize: 22,
                   fontWeight: pw.FontWeight.bold,
-                  font: _thaiBoldFont ?? _thaiFont,
+                  font: _thaiBoldFont ?? _thaiFont!,
                 ),
               ),
               pw.SizedBox(height: 8),
               pw.Text(
                 monthStr,
-                style: pw.TextStyle(fontSize: 14, font: _thaiFont),
+                style: pw.TextStyle(fontSize: 14, font: _thaiFont!),
               ),
               pw.SizedBox(height: 24),
               pw.Text(
                 'ชื่อพนักงาน: ${fullName.isNotEmpty ? fullName : 'ชื่อ-นามสกุลพนักงาน'}',
-                style: pw.TextStyle(fontSize: 14, font: _thaiFont),
+                style: pw.TextStyle(fontSize: 14, font: _thaiFont!),
               ),
               pw.SizedBox(height: 4),
               pw.Text(
                 'ตำแหน่ง: $position',
-                style: pw.TextStyle(fontSize: 14, font: _thaiFont),
+                style: pw.TextStyle(fontSize: 14, font: _thaiFont!),
               ),
               if (department.isNotEmpty) ...[
                 pw.SizedBox(height: 4),
                 pw.Text(
                   'แผนก: $department',
-                  style: pw.TextStyle(fontSize: 14, font: _thaiFont),
+                  style: pw.TextStyle(fontSize: 14, font: _thaiFont!),
                 ),
               ],
               pw.SizedBox(height: 24),
@@ -395,26 +428,26 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
                 style: pw.TextStyle(
                   fontSize: 16,
                   fontWeight: pw.FontWeight.bold,
-                  font: _thaiBoldFont ?? _thaiFont,
+                  font: _thaiBoldFont ?? _thaiFont!,
                 ),
               ),
               pw.SizedBox(height: 12),
               pw.Bullet(
                 text: 'ปฏิบัติงานตามหน้าที่และความรับผิดชอบครบถ้วนตลอดเดือน',
-                style: pw.TextStyle(font: _thaiFont),
+                style: pw.TextStyle(font: _thaiFont!),
               ),
               pw.Bullet(
                 text: 'เข้าร่วมประชุมและกิจกรรมภายในองค์กรอย่างสม่ำเสมอ',
-                style: pw.TextStyle(font: _thaiFont),
+                style: pw.TextStyle(font: _thaiFont!),
               ),
               pw.Bullet(
                 text: 'ให้ความร่วมมือกับเพื่อนร่วมงานและผู้บังคับบัญชาเป็นอย่างดี',
-                style: pw.TextStyle(font: _thaiFont),
+                style: pw.TextStyle(font: _thaiFont!),
               ),
               pw.SizedBox(height: 24),
               pw.Text(
                 'หมายเหตุ: รายงานฉบับนี้เป็นตัวอย่างที่สร้างจากระบบเพื่อใช้ทดสอบการดาวน์โหลดเอกสารเท่านั้น',
-                style: pw.TextStyle(fontSize: 12, font: _thaiFont),
+                style: pw.TextStyle(fontSize: 12, font: _thaiFont!),
               ),
             ],
           );
@@ -431,21 +464,63 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
     return file.path;
   }
 
-  Future<pw.ThemeData> _thaiTheme() async {
+  Future<void> _thaiTheme() async {
+    if (_thaiFont != null) return; // ถ้าโหลดแล้วไม่ต้องโหลดซ้ำ
+    
     try {
-      if (_thaiFont == null) {
-        final regularData =
-            await rootBundle.load('assets/fonts/NotoSansThai-Regular.ttf');
-        _thaiFont = pw.Font.ttf(regularData);
-        _thaiBoldFont = _thaiFont;
+      ByteData? fontData;
+      
+      // วิธีที่ 1: ลองโหลดจาก local storage (ถ้ามี)
+      try {
+        final directory = await getApplicationDocumentsDirectory();
+        final fontFile = File('${directory.path}/NotoSansThai-Regular.ttf');
+        if (await fontFile.exists()) {
+          final bytes = await fontFile.readAsBytes();
+          fontData = ByteData.view(bytes.buffer);
+          debugPrint('Loaded font from local storage (${bytes.length} bytes)');
+        }
+      } catch (e) {
+        debugPrint('Failed to load font from local storage: $e');
       }
-      return pw.ThemeData.withFont(
-        base: _thaiFont!,
-        bold: _thaiBoldFont ?? _thaiFont!,
-      );
+      
+      // วิธีที่ 2: ถ้ายังไม่มี ลองโหลดจาก assets
+      if (fontData == null) {
+        try {
+          fontData = await rootBundle.load('assets/fonts/NotoSansThai-Regular.ttf');
+          debugPrint('Loaded font from assets');
+        } catch (e) {
+          debugPrint('Failed to load font from assets: $e');
+        }
+      }
+      
+      // วิธีที่ 3: ถ้ายังไม่มี ให้แสดง warning
+      if (fontData == null) {
+        debugPrint('Font not found. Please ensure NotoSansThai-Regular.ttf is in assets/fonts/');
+        debugPrint('See FONT_INSTALLATION.md for instructions.');
+      }
+      
+      // ใช้ฟอนต์ที่โหลดได้
+      if (fontData != null) {
+        try {
+          _thaiFont = pw.Font.ttf(fontData);
+          _thaiBoldFont = _thaiFont;
+          debugPrint('Thai font initialized successfully');
+        } catch (e) {
+          debugPrint('Error initializing font: $e');
+          _thaiFont = null;
+          _thaiBoldFont = null;
+        }
+      } else {
+        debugPrint('Error: Could not load Thai font from any source');
+        debugPrint('Please download NotoSansThai-Regular.ttf from Google Fonts and place it in assets/fonts/');
+        _thaiFont = null;
+        _thaiBoldFont = null;
+        // ไม่ throw exception เพื่อให้ PDF ยังสร้างได้ (แต่จะไม่มีฟอนต์ไทย)
+      }
     } catch (e) {
-      // ถ้าโหลดฟอนต์ไม่สำเร็จ ให้ใช้ธีมปกติ (ตัวอักษรอังกฤษจะยังแสดงได้)
-      return pw.ThemeData.base();
+      debugPrint('Error loading Thai fonts for documents PDF: $e');
+      _thaiFont = null;
+      _thaiBoldFont = null;
     }
   }
 }

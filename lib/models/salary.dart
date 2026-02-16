@@ -5,7 +5,9 @@ class Salary {
   final double baseSalary;
   final double bonus;
   final double overtime;
+  final double commission; // ค่าคอมมิชชั่น
   final double allowance;
+  final double positionAllowance; // ค่าตำแหน่ง
   final double transportAllowance;
   final double otherIncome;
   final double tax;
@@ -25,7 +27,9 @@ class Salary {
     required this.baseSalary,
     this.bonus = 0,
     this.overtime = 0,
+    this.commission = 0,
     this.allowance = 0,
+    this.positionAllowance = 0,
     this.transportAllowance = 0,
     this.otherIncome = 0,
     this.tax = 0,
@@ -41,11 +45,23 @@ class Salary {
 
   // คำนวณรายได้รวม
   double get totalIncome =>
-      baseSalary + bonus + overtime + allowance + transportAllowance + otherIncome;
+      baseSalary + 
+      bonus + 
+      overtime + 
+      commission + 
+      allowance + 
+      positionAllowance + 
+      transportAllowance + 
+      otherIncome;
 
   // คำนวณรายการหักรวม
   double get totalDeductions =>
-      tax + socialSecurity + providentFund + loan + fine + otherDeductions;
+      tax + 
+      socialSecurity + 
+      providentFund + 
+      loan + 
+      fine + 
+      otherDeductions;
 
   // คำนวณเงินเดือนสุทธิ
   double get netSalary => totalIncome - totalDeductions;
@@ -112,7 +128,9 @@ class Salary {
       baseSalary: _parseDouble(json['base_salary']),
       bonus: _parseDouble(json['bonus']),
       overtime: _parseDouble(json['overtime']),
+      commission: _parseDouble(json['commission']),
       allowance: _parseDouble(json['allowance']),
+      positionAllowance: _parseDouble(json['position_allowance']),
       transportAllowance: _parseDouble(json['transport_allowance']),
       otherIncome: _parseDouble(json['other_income']),
       tax: _parseDouble(json['tax']),
@@ -144,7 +162,9 @@ class Salary {
       'base_salary': baseSalary,
       'bonus': bonus,
       'overtime': overtime,
+      'commission': commission,
       'allowance': allowance,
+      'position_allowance': positionAllowance,
       'transport_allowance': transportAllowance,
       'other_income': otherIncome,
       'tax': tax,
@@ -157,6 +177,53 @@ class Salary {
       'leave_days': leaveDays,
       'overtime_hours': overtimeHours,
     };
+  }
+
+  // ใช้สำหรับปรับค่าบางฟิลด์ (เช่น OT) โดยไม่ต้องสร้าง object ใหม่ทั้งหมดด้วยมือ
+  Salary copyWith({
+    String? month,
+    int? year,
+    DateTime? paymentDate,
+    double? baseSalary,
+    double? bonus,
+    double? overtime,
+    double? commission,
+    double? allowance,
+    double? positionAllowance,
+    double? transportAllowance,
+    double? otherIncome,
+    double? tax,
+    double? socialSecurity,
+    double? providentFund,
+    double? loan,
+    double? fine,
+    double? otherDeductions,
+    int? workDays,
+    int? leaveDays,
+    double? overtimeHours,
+  }) {
+    return Salary(
+      month: month ?? this.month,
+      year: year ?? this.year,
+      paymentDate: paymentDate ?? this.paymentDate,
+      baseSalary: baseSalary ?? this.baseSalary,
+      bonus: bonus ?? this.bonus,
+      overtime: overtime ?? this.overtime,
+      commission: commission ?? this.commission,
+      allowance: allowance ?? this.allowance,
+      positionAllowance: positionAllowance ?? this.positionAllowance,
+      transportAllowance: transportAllowance ?? this.transportAllowance,
+      otherIncome: otherIncome ?? this.otherIncome,
+      tax: tax ?? this.tax,
+      socialSecurity: socialSecurity ?? this.socialSecurity,
+      providentFund: providentFund ?? this.providentFund,
+      loan: loan ?? this.loan,
+      fine: fine ?? this.fine,
+      otherDeductions: otherDeductions ?? this.otherDeductions,
+      workDays: workDays ?? this.workDays,
+      leaveDays: leaveDays ?? this.leaveDays,
+      overtimeHours: overtimeHours ?? this.overtimeHours,
+    );
   }
 }
 

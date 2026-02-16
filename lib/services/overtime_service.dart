@@ -3,6 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 import 'dart:io';
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
 import '../models/overtime_model.dart';
 import '../config/api_config.dart';
 
@@ -189,6 +190,32 @@ class OvertimeService extends ChangeNotifier {
           request.fields['end_time'] = endTime;
           request.fields['reason'] = reason ?? '';
 
+          // ตรวจสอบชนิดไฟล์จากนามสกุล และกำหนด content-type ให้ถูกต้อง
+          final fileName = evidenceImagePath.split('/').last;
+          final ext = fileName.split('.').last.toLowerCase();
+          MediaType? contentType;
+          switch (ext) {
+            case 'jpg':
+            case 'jpeg':
+              contentType = MediaType('image', 'jpeg');
+              break;
+            case 'png':
+              contentType = MediaType('image', 'png');
+              break;
+            case 'gif':
+              contentType = MediaType('image', 'gif');
+              break;
+            case 'webp':
+              contentType = MediaType('image', 'webp');
+              break;
+            default:
+              return {
+                'success': false,
+                'message':
+                    'กรุณาอัปโหลดไฟล์รูปภาพเท่านั้น (jpg, png, gif, webp)',
+              };
+          }
+
           // เพิ่มไฟล์รูปภาพ
           final fileStream = http.ByteStream(file.openRead());
           final fileLength = await file.length();
@@ -196,12 +223,15 @@ class OvertimeService extends ChangeNotifier {
             'evidence_image',
             fileStream,
             fileLength,
-            filename: evidenceImagePath.split('/').last,
+            filename: fileName,
+            contentType: contentType,
           );
           request.files.add(multipartFile);
 
           final streamedResponse = await request.send();
           final response = await http.Response.fromStream(streamedResponse);
+          // log เพื่อตรวจสอบปัญหา
+          debugPrint('[OT] createRequest (multipart) status=${response.statusCode} body=${response.body}');
           final data = json.decode(response.body);
 
           if (response.statusCode == 200 || response.statusCode == 201) {
@@ -228,6 +258,8 @@ class OvertimeService extends ChangeNotifier {
             'reason': reason ?? '',
           }),
         );
+        // log เพื่อตรวจสอบปัญหา
+        debugPrint('[OT] createRequest (json) status=${response.statusCode} body=${response.body}');
 
         final data = json.decode(response.body);
 

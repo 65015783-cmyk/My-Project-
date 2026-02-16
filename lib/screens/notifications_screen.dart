@@ -7,6 +7,8 @@ import 'package:http/http.dart' as http;
 import '../config/api_config.dart';
 import '../services/notification_service.dart';
 import 'leave_detail_screen.dart';
+import 'overtime_history_screen.dart';
+import 'admin/overtime_approval_screen.dart';
 
 class NotificationsScreen extends StatefulWidget {
   const NotificationsScreen({super.key});
@@ -258,21 +260,29 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       elevation: 2,
       color: notification.isUnread ? Colors.blue[50] : Colors.white,
       child: InkWell(
-        onTap: () {
+        onTap: () async {
           print('[Notifications] Card tapped: ${notification.title}');
           print('[Notifications] leaveId: ${notification.leaveId}');
-          print('[Notifications] isLeaveRelated: ${notification.title.contains('การลา') || notification.title.contains('อนุมัติ') || notification.title.contains('ปฏิเสธ')}');
+          final isLeaveRelatedDebug = notification.title.contains('ลางาน') ||
+              notification.title.contains('การลา');
+          print('[Notifications] isLeaveRelated: $isLeaveRelatedDebug');
           
           if (notification.isUnread) {
             _markAsRead(notification.id);
           }
           
-          // Navigate to leave detail if it's a leave-related notification and has leaveId
-          // สำหรับแจ้งเตือนอื่นๆ ไม่ทำอะไร (แค่ mark as read)
-          final isLeaveRelated = notification.title.contains('การลา') || 
-                                 notification.title.contains('อนุมัติ') || 
-                                 notification.title.contains('ปฏิเสธ');
-          
+          // ตรวจว่าเกี่ยวกับการลาไหม (ใช้เฉพาะ title)
+          final isLeaveRelated = notification.title.contains('ลางาน') ||
+              notification.title.contains('การลา');
+
+          // ตรวจว่าเกี่ยวกับ OT ไหม (ดูทั้ง title และ message)
+          final isOvertimeRelated =
+              notification.title.contains('ทำงานล่วงเวลา') ||
+                  notification.title.contains('OT') ||
+                  notification.message.contains('ทำงานล่วงเวลา') ||
+                  notification.message.contains('OT');
+
+          // 1) แจ้งเตือนการลา → ไปหน้า LeaveDetail
           if (isLeaveRelated) {
             if (notification.leaveId != null) {
               print('[Notifications] Navigating to LeaveDetailScreen with leaveId: ${notification.leaveId}');
@@ -291,9 +301,39 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                 ),
               );
             }
-          } else {
-            print('[Notifications] Not a leave-related notification - no action');
+            return;
           }
+
+          // 2) แจ้งเตือน OT → ไปหน้า OT ที่เหมาะสมตาม role
+          if (isOvertimeRelated) {
+            final prefs = await SharedPreferences.getInstance();
+            final role = (prefs.getString('role') ?? '').toLowerCase();
+            print('[Notifications] OT notification tapped - role: $role');
+
+            if (!mounted) return;
+
+            if (role == 'admin' || role == 'manager') {
+              // ผู้อนุมัติ → ไปหน้าอนุมัติ OT
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const OvertimeApprovalScreen(),
+                ),
+              );
+            } else {
+              // พนักงานทั่วไป → ไปหน้าประวัติการขอ OT
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const OvertimeHistoryScreen(),
+                ),
+              );
+            }
+            return;
+          }
+
+          // 3) แจ้งเตือนประเภทอื่น ๆ → ยังไม่ต้องทำอะไร (แค่ mark as read)
+          print('[Notifications] Not a leave/OT notification - no navigation');
         },
         child: ListTile(
           contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),

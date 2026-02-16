@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import 'package:share_plus/share_plus.dart';
 import '../services/salary_service.dart';
+import '../services/overtime_service.dart';
 import '../models/salary.dart';
 
 class SalaryScreen extends StatefulWidget {
@@ -45,6 +46,10 @@ class _SalaryScreenState extends State<SalaryScreen> with SingleTickerProviderSt
     if (!mounted) return;
     final salaryService = Provider.of<SalaryService>(context, listen: false);
     salaryService.fetchSalarySummary(year: _selectedYear, month: _selectedMonth);
+
+    // โหลดสรุป OT ของเดือน/ปีเดียวกัน เพื่อใช้คำนวณค่าล่วงเวลา
+    final overtimeService = Provider.of<OvertimeService>(context, listen: false);
+    overtimeService.loadSummary(month: _selectedMonth, year: _selectedYear);
   }
 
   List<int> _getYearList() {
@@ -283,7 +288,7 @@ class _SalaryScreenState extends State<SalaryScreen> with SingleTickerProviderSt
               // Income Section
               _buildSectionTitle('รายได้'),
               const SizedBox(height: 8),
-              _buildIncomeCard(salary),
+              _buildIncomeCard(context, salary),
               const SizedBox(height: 16),
               
               // Deductions Section
@@ -649,7 +654,37 @@ class _SalaryScreenState extends State<SalaryScreen> with SingleTickerProviderSt
     );
   }
 
-  Widget _buildIncomeCard(Salary salary) {
+  // ปรับค่าล่วงเวลาในมุมมองจากข้อมูลสรุป OT ที่อนุมัติแล้ว (ฝั่ง client)
+  Salary _applyOvertimeFromSummary(BuildContext context, Salary salary) {
+    final overtimeService = Provider.of<OvertimeService>(context);
+    final summary = overtimeService.summary;
+
+    // ถ้า backend ส่งค่าล่วงเวลามาแล้ว ให้ใช้ค่าจาก backend ตรงๆ
+    if (salary.overtime > 0 || summary == null || summary.approvedHours <= 0) {
+      return salary;
+    }
+
+    // คำนวณค่า OT แบบประมาณการ:
+    // ชั่วโมงทำงานต่อเดือน = วันทำงาน * 8 ชม.
+    // อัตราค่าจ้างต่อชั่วโมง = เงินเดือนพื้นฐาน / ชั่วโมงทำงานต่อเดือน
+    // เงิน OT = approvedHours * hourlyRate * 1.5 (สมมติเป็นวันธรรมดา)
+    final workDays = salary.workDays > 0 ? salary.workDays : 22;
+    final baseHours = workDays * 8;
+    if (baseHours <= 0) return salary;
+
+    final hourlyRate = salary.baseSalary / baseHours;
+    const weekdayMultiplier = 1.5; // ใช้เรทวันธรรมดาเป็นค่าเริ่มต้น
+    final overtimeAmount = summary.approvedHours * hourlyRate * weekdayMultiplier;
+
+    return salary.copyWith(
+      overtime: overtimeAmount,
+      overtimeHours: summary.approvedHours,
+    );
+  }
+
+  Widget _buildIncomeCard(BuildContext context, Salary salary) {
+    final adjustedSalary = _applyOvertimeFromSummary(context, salary);
+
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -665,29 +700,23 @@ class _SalaryScreenState extends State<SalaryScreen> with SingleTickerProviderSt
       ),
       child: Column(
         children: [
-          _buildDetailRow('เงินเดือนพื้นฐาน', salary.baseSalary, Colors.green),
-          if (salary.bonus > 0) ...[
-            const Divider(height: 24),
-            _buildDetailRow('โบนัส', salary.bonus, Colors.green),
-          ],
-          if (salary.overtime > 0) ...[
-            const Divider(height: 24),
-            _buildDetailRow('ค่าล่วงเวลา (${salary.overtimeHours.toInt()} ชม.)', salary.overtime, Colors.green),
-          ],
-          if (salary.allowance > 0) ...[
-            const Divider(height: 24),
-            _buildDetailRow('เบี้ยเลี้ยง', salary.allowance, Colors.green),
-          ],
-          if (salary.transportAllowance > 0) ...[
-            const Divider(height: 24),
-            _buildDetailRow('ค่าเดินทาง', salary.transportAllowance, Colors.green),
-          ],
-          if (salary.otherIncome > 0) ...[
-            const Divider(height: 24),
-            _buildDetailRow('รายได้อื่นๆ', salary.otherIncome, Colors.green),
-          ],
+          _buildDetailRow('เงินเดือนพื้นฐาน', adjustedSalary.baseSalary, Colors.green),
+          const Divider(height: 24),
+          _buildDetailRow('โบนัส', adjustedSalary.bonus, Colors.green),
+          const Divider(height: 24),
+          _buildDetailRow(
+            'ค่าล่วงเวลา (${adjustedSalary.overtimeHours.toInt()} ชม.)',
+            adjustedSalary.overtime,
+            Colors.green,
+          ),
+          const Divider(height: 24),
+          _buildDetailRow('เบี้ยเลี้ยง', adjustedSalary.allowance, Colors.green),
+          const Divider(height: 24),
+          _buildDetailRow('ค่าเดินทาง', adjustedSalary.transportAllowance, Colors.green),
+          const Divider(height: 24),
+          _buildDetailRow('รายได้อื่นๆ', adjustedSalary.otherIncome, Colors.green),
           const Divider(height: 24, thickness: 2),
-          _buildDetailRow('รวมรายได้', salary.totalIncome, Colors.green, isBold: true),
+          _buildDetailRow('รวมรายได้', adjustedSalary.totalIncome, Colors.green, isBold: true),
         ],
       ),
     );
@@ -709,28 +738,17 @@ class _SalaryScreenState extends State<SalaryScreen> with SingleTickerProviderSt
       ),
       child: Column(
         children: [
-          if (salary.tax > 0) 
-            _buildDetailRow('ภาษีเงินได้หัก ณ ที่จ่าย', salary.tax, Colors.red),
-          if (salary.socialSecurity > 0) ...[
-            const Divider(height: 24),
-            _buildDetailRow('ประกันสังคม', salary.socialSecurity, Colors.red),
-          ],
-          if (salary.providentFund > 0) ...[
-            const Divider(height: 24),
-            _buildDetailRow('กองทุนสำรองเลี้ยงชีพ', salary.providentFund, Colors.red),
-          ],
-          if (salary.loan > 0) ...[
-            const Divider(height: 24),
-            _buildDetailRow('เงินกู้/เงินยืม', salary.loan, Colors.red),
-          ],
-          if (salary.fine > 0) ...[
-            const Divider(height: 24),
-            _buildDetailRow('ค่าปรับ', salary.fine, Colors.red),
-          ],
-          if (salary.otherDeductions > 0) ...[
-            const Divider(height: 24),
-            _buildDetailRow('การหักอื่นๆ', salary.otherDeductions, Colors.red),
-          ],
+          _buildDetailRow('ภาษีเงินได้หัก ณ ที่จ่าย', salary.tax, Colors.red),
+          const Divider(height: 24),
+          _buildDetailRow('ประกันสังคม', salary.socialSecurity, Colors.red),
+          const Divider(height: 24),
+          _buildDetailRow('กองทุนสำรองเลี้ยงชีพ', salary.providentFund, Colors.red),
+          const Divider(height: 24),
+          _buildDetailRow('เงินกู้/เงินยืม', salary.loan, Colors.red),
+          const Divider(height: 24),
+          _buildDetailRow('ค่าปรับ', salary.fine, Colors.red),
+          const Divider(height: 24),
+          _buildDetailRow('การหักอื่นๆ', salary.otherDeductions, Colors.red),
           const Divider(height: 24, thickness: 2),
           _buildDetailRow('รวมรายการหัก', salary.totalDeductions, Colors.red, isBold: true),
         ],

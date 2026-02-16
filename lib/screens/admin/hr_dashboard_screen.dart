@@ -698,6 +698,8 @@ class _HRDashboardScreenState extends State<HRDashboardScreen> {
                       'name': displayName,
                       'department': department,
                       'checkIn': checkInDateTime,
+                      'checkInImagePath':
+                          att['check_in_image_path']?.toString(),
                     };
 
                     // ทุกคนที่มาให้เก็บใน present
@@ -2732,27 +2734,105 @@ class _HRDashboardScreenState extends State<HRDashboardScreen> {
                           itemBuilder: (context, index) {
                             final item = items[index];
                             final name = item['name']?.toString() ?? '-';
-                            final department = item['department']?.toString() ?? '-';
-                            final checkIn = item['checkIn'] is DateTime ? item['checkIn'] as DateTime : null;
+                            final department =
+                                item['department']?.toString() ?? '-';
+                            final checkIn = item['checkIn'] is DateTime
+                                ? item['checkIn'] as DateTime
+                                : null;
+                            final checkInImagePath =
+                                item['checkInImagePath']?.toString();
 
                             String subtitle = department;
-                            if (checkIn != null && (type == 'present' || type == 'late')) {
+                            if (checkIn != null &&
+                                (type == 'present' || type == 'late')) {
                               final timeStr =
                                   '${checkIn.hour.toString().padLeft(2, '0')}:${checkIn.minute.toString().padLeft(2, '0')}';
                               subtitle = '$department • เข้าเวลา $timeStr น.';
                             }
 
-                            return ListTile(
-                              leading: CircleAvatar(
+                            Widget leading;
+                            if (checkInImagePath != null &&
+                                checkInImagePath.isNotEmpty) {
+                              // ถ้าเป็น URL หรือ path จาก server (เช่น uploads/...)
+                              final isRemote = checkInImagePath
+                                      .startsWith('http://') ||
+                                  checkInImagePath.startsWith('https://') ||
+                                  checkInImagePath.startsWith('uploads/');
+
+                              if (isRemote) {
+                                final imageUrl =
+                                    checkInImagePath.startsWith('http')
+                                        ? checkInImagePath
+                                        : '${ApiConfig.baseUrl}/$checkInImagePath';
+
+                                leading = ClipRRect(
+                                  borderRadius: BorderRadius.circular(24),
+                                  child: Image.network(
+                                    imageUrl,
+                                    width: 40,
+                                    height: 40,
+                                    fit: BoxFit.cover,
+                                    errorBuilder:
+                                        (context, error, stackTrace) {
+                                      return CircleAvatar(
+                                        backgroundColor: Colors.blue[100],
+                                        child: Text(
+                                          name.isNotEmpty
+                                              ? name[0].toUpperCase()
+                                              : '?',
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                            color: Colors.blue,
+                                          ),
+                                        ),
+                                      );
+                                    },
+                                  ),
+                                );
+                              } else {
+                                // ถ้าเป็น path ในเครื่อง (เช่น /data/user/0/...) ให้ใช้ Image.file
+                                leading = ClipRRect(
+                                  borderRadius: BorderRadius.circular(24),
+                                  child: Image.file(
+                                    File(checkInImagePath),
+                                    width: 40,
+                                    height: 40,
+                                    fit: BoxFit.cover,
+                                    errorBuilder:
+                                        (context, error, stackTrace) {
+                                      return CircleAvatar(
+                                        backgroundColor: Colors.blue[100],
+                                        child: Text(
+                                          name.isNotEmpty
+                                              ? name[0].toUpperCase()
+                                              : '?',
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                            color: Colors.blue,
+                                          ),
+                                        ),
+                                      );
+                                    },
+                                  ),
+                                );
+                              }
+                            } else {
+                              leading = CircleAvatar(
                                 backgroundColor: Colors.blue[100],
                                 child: Text(
-                                  name.isNotEmpty ? name[0].toUpperCase() : '?',
+                                  name.isNotEmpty
+                                      ? name[0].toUpperCase()
+                                      : '?',
                                   style: const TextStyle(
                                     fontWeight: FontWeight.bold,
                                     color: Colors.blue,
                                   ),
                                 ),
-                              ),
+                              );
+                            }
+
+                            return ListTile(
+                              leading: leading,
                               title: Text(name),
                               subtitle: Text(
                                 subtitle,

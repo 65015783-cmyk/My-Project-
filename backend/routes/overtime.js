@@ -317,9 +317,130 @@ router.post('/request', authenticateToken, upload.single('evidence_image'), asyn
       [userId, date, start_time, end_time, totalHours, reason, evidenceImagePath]
     );
 
+    const otRequestId = result.insertId;
+
+    // สร้างการแจ้งเตือนให้ผู้มีสิทธิ์อนุมัติ (Admin + Manager แผนกเดียวกัน)
+    try {
+      // หาข้อมูลพนักงานที่ขอ OT เพื่อใช้ใน notification
+      const [employeeInfo] = await connection.execute(
+        `SELECT CONCAT(first_name, ' ', last_name) as employee_name, department
+         FROM employees 
+         WHERE user_id = ?`,
+        [userId]
+      );
+
+      const employeeName =
+        employeeInfo.length > 0 ? employeeInfo[0].employee_name : 'พนักงาน';
+      const employeeDept =
+        employeeInfo.length > 0 ? employeeInfo[0].department : '';
+
+      // หา admin ทุกคน
+      const [adminRows] = await connection.execute(
+        `SELECT user_id FROM login WHERE role = 'admin'`
+      );
+
+      // หา manager ทุกคนในแผนกเดียวกับพนักงาน (หัวหน้างาน)
+      let managerRows = [];
+      if (employeeDept) {
+        const [rows] = await connection.execute(
+          `SELECT l.user_id
+           FROM login l
+           INNER JOIN employees e ON l.user_id = e.user_id
+           WHERE l.role = 'manager'
+             AND e.department = ?`,
+          [employeeDept]
+        );
+        managerRows = rows;
+        console.log(
+          `[OT Request] Found ${managerRows.length} manager(s) in department ${employeeDept} to notify`
+        );
+      } else {
+        console.log(
+          '[OT Request] Employee has no department, skip manager notifications'
+        );
+      }
+
+      // สร้างตาราง notifications ถ้ายังไม่มี
+      try {
+        await connection.execute(`
+          CREATE TABLE IF NOT EXISTS notifications (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            user_id INT NOT NULL,
+            title VARCHAR(255) NOT NULL,
+            message TEXT NOT NULL,
+            type VARCHAR(50) DEFAULT 'info',
+            leave_id INT DEFAULT NULL,
+            is_read BOOLEAN DEFAULT FALSE,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_user_id (user_id),
+            INDEX idx_is_read (is_read),
+            INDEX idx_leave_id (leave_id),
+            FOREIGN KEY (user_id) REFERENCES login(user_id) ON DELETE CASCADE,
+            FOREIGN KEY (leave_id) REFERENCES leaves(id) ON DELETE SET NULL
+          ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        `);
+      } catch (tableError) {
+        console.error('[OT Request] Error creating notifications table:', tableError);
+      }
+
+      // เนื้อหาการแจ้งเตือนร่วมกัน
+      const notificationTitle = 'คำขอทำงานล่วงเวลาใหม่';
+      const notificationMessage = `${employeeName}${
+        employeeDept ? ` (แผนก ${employeeDept})` : ''
+      } ได้ส่งคำขอทำงานล่วงเวลา (OT) รอการอนุมัติ`;
+      const notificationType = 'info';
+
+      // สร้างการแจ้งเตือนให้ admin ทุกคน
+      for (const admin of adminRows) {
+        try {
+          await connection.execute(
+            `INSERT INTO notifications (user_id, title, message, type, leave_id, is_read)
+             VALUES (?, ?, ?, ?, ?, FALSE)`,
+            [admin.user_id, notificationTitle, notificationMessage, notificationType, null]
+          );
+          console.log(
+            `[OT Request] ✅ ส่งแจ้งเตือนคำขอ OT ใหม่ไปยัง admin user_id ${admin.user_id} (ot_id: ${otRequestId})`
+          );
+        } catch (notifError) {
+          console.error(
+            `[OT Request] ❌ Error creating notification for admin user_id ${admin.user_id}:`,
+            notifError
+          );
+        }
+      }
+
+      // สร้างการแจ้งเตือนให้หัวหน้างาน (manager) ในแผนกเดียวกัน
+      for (const manager of managerRows) {
+        try {
+          await connection.execute(
+            `INSERT INTO notifications (user_id, title, message, type, leave_id, is_read)
+             VALUES (?, ?, ?, ?, ?, FALSE)`,
+            [
+              manager.user_id,
+              notificationTitle,
+              notificationMessage,
+              notificationType,
+              null
+            ]
+          );
+          console.log(
+            `[OT Request] ✅ ส่งแจ้งเตือนคำขอ OT ใหม่ไปยัง manager user_id ${manager.user_id} (ot_id: ${otRequestId})`
+          );
+        } catch (notifError) {
+          console.error(
+            `[OT Request] ❌ Error creating notification for manager user_id ${manager.user_id}:`,
+            notifError
+          );
+        }
+      }
+    } catch (notifError) {
+      // Log error แต่ไม่ทำให้การส่งคำขอ OT ล้มเหลว
+      console.error('[OT Request] Error creating notifications for approvers:', notifError);
+    }
+
     res.json({
       message: 'ส่งคำขอ OT สำเร็จ',
-      id: result.insertId,
+      id: otRequestId,
       total_hours: parseFloat(totalHours),
       evidence_image_path: evidenceImagePath
     });
@@ -423,8 +544,60 @@ router.put('/approve/:id', authenticateToken, async (req, res) => {
       [status, approverId, approvedAt, rejection_reason || null, id]
     );
 
+    // สร้างการแจ้งเตือนให้พนักงานเจ้าของคำขอ OT
+    try {
+      // สร้างตาราง notifications ถ้ายังไม่มี (ใช้โครงสร้างเดียวกับของการลา)
+      await connection.execute(`
+        CREATE TABLE IF NOT EXISTS notifications (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          user_id INT NOT NULL,
+          title VARCHAR(255) NOT NULL,
+          message TEXT NOT NULL,
+          type VARCHAR(50) DEFAULT 'info',
+          leave_id INT DEFAULT NULL,
+          is_read BOOLEAN DEFAULT FALSE,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          INDEX idx_user_id (user_id),
+          INDEX idx_is_read (is_read),
+          INDEX idx_leave_id (leave_id),
+          FOREIGN KEY (user_id) REFERENCES login(user_id) ON DELETE CASCADE,
+          FOREIGN KEY (leave_id) REFERENCES leaves(id) ON DELETE SET NULL
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      `);
+
+      const notificationTitle =
+        status === 'approved' ? 'อนุมัติทำงานล่วงเวลา' : 'ปฏิเสธทำงานล่วงเวลา';
+      const notificationMessage =
+        status === 'approved'
+          ? 'คำขอทำงานล่วงเวลาของคุณได้รับการอนุมัติแล้ว'
+          : `คำขอทำงานล่วงเวลาของคุณถูกปฏิเสธ${
+              rejection_reason ? `: ${rejection_reason}` : ''
+            }`;
+
+      await connection.execute(
+        `INSERT INTO notifications (user_id, title, message, type, leave_id, is_read)
+         VALUES (?, ?, ?, ?, NULL, FALSE)`,
+        [
+          request.user_id,
+          notificationTitle,
+          notificationMessage,
+          status === 'approved' ? 'success' : 'warning'
+        ]
+      );
+
+      console.log(
+        `[OT Approval] Notification created for user_id ${request.user_id} (status: ${status})`
+      );
+    } catch (notifError) {
+      // ไม่ให้การสร้าง notification ทำให้การอนุมัติล้มเหลว
+      console.error('[OT Approval] Error creating notification:', notifError);
+    }
+
     res.json({
-      message: action === 'approve' ? 'อนุมัติคำขอ OT สำเร็จ' : 'ปฏิเสธคำขอ OT สำเร็จ',
+      message:
+        action === 'approve'
+          ? 'อนุมัติคำขอ OT และส่งการแจ้งเตือนสำเร็จ'
+          : 'ปฏิเสธคำขอ OT และส่งการแจ้งเตือนสำเร็จ',
       status: status
     });
   } catch (error) {

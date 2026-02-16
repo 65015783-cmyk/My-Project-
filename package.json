@@ -1,0 +1,17 @@
+{
+  "name": "humans-hr-management",
+  "version": "1.0.0",
+  "description": "Hummans HR Management System - Flutter Frontend with Node.js Backend",
+  "private": true,
+  "scripts": {
+    "backend:install": "cd backend && npm install",
+    "backend:start": "cd backend && npm start",
+    "backend:dev": "cd backend && npm run dev",
+    "flutter:get": "flutter pub get",
+    "flutter:run": "flutter run",
+    "flutter:build": "flutter build apk"
+  },
+  "keywords": ["flutter", "hr", "management", "attendance"],
+  "author": "",
+  "license": "MIT"
+}
